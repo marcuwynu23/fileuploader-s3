@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "fileuploader-s3"
+version = "0.1.0"
+description = "Flask + MinIO File Uploader"
+authors = ["Mark Wayne Menorca <marcuwynu23@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "fileuploader_s3", from = "src" }]
+
+# ✅ Restrict python <4.0 to fix flask-cors conflict
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+flask = "^3.1.2"
+flask-cors = "^6.0.1"
+python-dotenv = "^1.1.1"
+boto3 = "^1.40.34"
+botocore = "^1.40.34"
+markdown = "^3.9"
+waitress = "^3.0.2"
+cryptography = "^46.0.1"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.poetry.scripts]
+app = "fileuploader_s3.main:main"
