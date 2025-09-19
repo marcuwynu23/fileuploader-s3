@@ -1,4 +1,4 @@
-# 📂 File Uploader with Encrypted Render URLs
+# 📂 File Uploader Web Service
 
 This service provides a secure file uploader backed by **S3-compatible storage** (MinIO, AWS S3, etc.).  
 Uploaded files are accessible through **encrypted render URLs**, so real filenames and folders are never exposed.
@@ -16,19 +16,23 @@ Uploaded files are accessible through **encrypted render URLs**, so real filenam
 ## ⚙️ Setup
 
 ### 1. Install Poetry
+
 If you don’t already have Poetry, install it:
 
 **Linux / macOS**
+
 ```sh
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
 **Windows (PowerShell)**
+
 ```powershell
 (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
 ```
 
 Verify installation:
+
 ```sh
 poetry --version
 ```
@@ -36,6 +40,7 @@ poetry --version
 ---
 
 ### 2. Clone and install dependencies
+
 ```sh
 git clone https://github.com/your-org/filuploader-s3.git
 cd filuploader-s3
@@ -45,6 +50,7 @@ poetry install
 ---
 
 ### 3. Generate an encryption key
+
 This key is used to encrypt and decrypt file paths. It must be generated **once** and stored in your `.env`.
 
 ```sh
@@ -52,6 +58,7 @@ poetry run python -c "from cryptography.fernet import Fernet; print(Fernet.gener
 ```
 
 Example output:
+
 ```
 u73l7dvmTnDChikLR8o9uZcZ1lEusbr2FJkW_TcQOHI=
 ```
@@ -59,6 +66,7 @@ u73l7dvmTnDChikLR8o9uZcZ1lEusbr2FJkW_TcQOHI=
 ---
 
 ### 4. Configure `.env`
+
 Copy `.env.example` to `.env` and fill in your values:
 
 ```dotenv
@@ -79,6 +87,7 @@ STORAGE_BUCKET=fileuploads                     # target bucket
 ---
 
 ### 5. Run the app
+
 ```sh
 poetry run app
 ```
@@ -100,15 +109,18 @@ http://localhost:2424/api/bcloud/fileuploader
 ## 🚀 Usage
 
 ### Upload a file
+
 ```http
 POST /api/bcloud/fileuploader/upload
 ```
 
 **Form Data**
-- `folder`: destination folder inside the bucket  
-- `file`: file to upload  
+
+- `folder`: destination folder inside the bucket
+- `file`: file to upload
 
 **Response**
+
 ```json
 {
   "message": "File uploaded",
@@ -119,25 +131,28 @@ POST /api/bcloud/fileuploader/upload
 ---
 
 ### Render (secure access)
+
 ```http
 GET /api/bcloud/fileuploader/render/<token>
 ```
 
-- Streams the file directly (video, PDF, image, etc.)  
-- Browser plays inline (e.g. `video/mp4`, `application/pdf`)  
-- Real filename/folder are **never exposed**  
+- Streams the file directly (video, PDF, image, etc.)
+- Browser plays inline (e.g. `video/mp4`, `application/pdf`)
+- Real filename/folder are **never exposed**
 
 ---
 
 ## 🛡️ Notes
-- `ENCRYPTION_KEY` must be stable across deployments, otherwise previously issued URLs will become invalid.  
-- Tokens never reveal the real storage path.  
-- Large files (videos) are streamed with proper headers for browser playback.  
+
+- `ENCRYPTION_KEY` must be stable across deployments, otherwise previously issued URLs will become invalid.
+- Tokens never reveal the real storage path.
+- Large files (videos) are streamed with proper headers for browser playback.
 
 ---
 
 ## 🧰 Tech Stack
-- **Flask** (API framework)  
-- **Poetry** (dependency manager)  
-- **cryptography.Fernet** (AES-128 encryption for secure tokens)  
-- **boto3** (S3/MinIO client)  
+
+- **Flask** (API framework)
+- **Poetry** (dependency manager)
+- **cryptography.Fernet** (AES-128 encryption for secure tokens)
+- **boto3** (S3/MinIO client)
