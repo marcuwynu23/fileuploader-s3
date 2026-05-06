@@ -4,11 +4,10 @@ Test cases for upload endpoints.
 
 import json
 import os
+import io
 import pytest
 from unittest.mock import patch, Mock
 from pathlib import Path
-
-from src.fileuploader_s3.main import app
 
 
 class TestSingleUpload:
@@ -116,7 +115,7 @@ class TestSingleUpload:
     def test_upload_disallowed_file_type(self, client, temp_upload_dir):
         """Test upload with disallowed file type."""
         # Create an executable file
-        exe_file = (b'MZ\x90\x00', 'malware.exe', 'application/x-executable')
+        exe_file = (io.BytesIO(b'MZ\x90\x00'), 'malware.exe', 'application/x-executable')
         
         data = {
             'folder': 'test',

@@ -3,11 +3,10 @@ Test cases for delete functionality.
 """
 
 import json
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import patch
-
-from src.fileuploader_s3.main import app
 
 
 class TestDeleteFunctionality:
@@ -15,10 +14,11 @@ class TestDeleteFunctionality:
     
     def test_successful_delete(self, client, temp_upload_dir, sample_image_file):
         """Test successful file deletion."""
-        # Create a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        # Create a file in the correct base folder
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'test.png'
         file_path.write_bytes(sample_image_file.read())
         
@@ -52,8 +52,9 @@ class TestDeleteFunctionality:
     
     def test_delete_removes_empty_folder(self, client, temp_upload_dir, sample_image_file):
         """Test that empty folders are removed after file deletion."""
-        # Create a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        # Create a file in the correct base folder
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = upload_dir / 'test.png'
@@ -73,12 +74,13 @@ class TestDeleteFunctionality:
     def test_delete_keeps_nonempty_folder(self, client, temp_upload_dir, sample_image_file):
         """Test that non-empty folders are not removed."""
         # Create a folder with multiple files
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file1_path = upload_dir / 'test.png'
         file1_path.write_bytes(sample_image_file.read())
-        
+
         file2_path = upload_dir / 'other.png'
         file2_path.write_bytes(b'other content')
         
@@ -163,9 +165,10 @@ class TestDeleteFunctionality:
     def test_delete_nested_folder_file(self, client, temp_upload_dir, sample_image_file):
         """Test deleting file from nested folder."""
         # Create nested folder structure
-        nested_dir = Path(temp_upload_dir) / 'test' / 'nested'
+        base_folder = 'test_uploads'
+        nested_dir = Path(base_folder) / 'test' / 'nested'
         nested_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = nested_dir / 'image.png'
         file_path.write_bytes(sample_image_file.read())
         
@@ -182,7 +185,8 @@ class TestDeleteFunctionality:
     def test_delete_path_traversal_attempt(self, client, temp_upload_dir, sample_image_file):
         """Test delete with path traversal attempt."""
         # Create a legitimate file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = upload_dir / 'test.png'

@@ -1,5 +1,5 @@
 """
-Fixed pytest configuration that avoids collection hanging.
+Pytest configuration with mocked S3 dependencies to bypass OpenSSL issues.
 """
 
 import os
@@ -9,33 +9,32 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 import io
 
-# Set environment variables to bypass OpenSSL issues
-os.environ['OPENSSL_CONF'] = ''
+# Mock boto3 and its dependencies to avoid OpenSSL issues
+mock_boto3 = Mock()
+mock_client = Mock()
+mock_client.head_bucket.return_value = {'ResponseMetadata': {'HTTPStatusCode': 200}}
+mock_client.upload_fileobj.return_value = None
+mock_client.delete_object.return_value = None
+mock_client.get_object.return_value = {
+    'Body': Mock(),
+    'ContentLength': 1024
+}
+mock_boto3.client.return_value = mock_client
 
-@pytest.fixture
+# Apply mocks before importing any modules that use boto3
+@pytest.fixture(scope='session', autouse=True)
 def mock_s3_dependencies():
     """Mock S3 dependencies to avoid OpenSSL issues."""
-    mock_boto3 = Mock()
-    mock_client = Mock()
-    mock_client.head_bucket.return_value = {'ResponseMetadata': {'HTTPStatusCode': 200}}
-    mock_client.upload_fileobj.return_value = None
-    mock_client.delete_object.return_value = None
-    mock_client.get_object.return_value = {
-        'Body': Mock(),
-        'ContentLength': 1024
-    }
-    mock_boto3.client.return_value = mock_client
-    
     with patch.dict('sys.modules', {
         'boto3': mock_boto3,
         'botocore': Mock(),
         'botocore.client': Mock(),
         'urllib3': Mock(),
     }):
-        yield mock_boto3
+        yield
 
 @pytest.fixture
-def client(mock_s3_dependencies):
+def client():
     """Create a test client for the Flask application."""
     # Import after mocking
     from src.fileuploader_s3.main import app
@@ -68,6 +67,7 @@ def temp_upload_dir():
 @pytest.fixture
 def sample_image_file():
     """Create a sample image file for testing."""
+    # Create a simple PNG file (1x1 pixel)
     png_data = (
         b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
         b'\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\tpHYs\x00\x00\x0b\x13\x00\x00'
@@ -191,6 +191,7 @@ def disallowed_file_extensions():
 def cleanup_temp_files():
     """Automatically clean up temporary files after each test."""
     yield
+    # Clean up test uploads directory if it exists
     test_upload_dir = Path('test_uploads')
     if test_upload_dir.exists():
         import shutil

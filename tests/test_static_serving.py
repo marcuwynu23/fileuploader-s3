@@ -8,8 +8,6 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.fileuploader_s3.main import app
-
 
 class TestStaticFileServing:
     """Test static file serving endpoint."""

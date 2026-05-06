@@ -85,7 +85,10 @@ class TestGetSafeFilePath:
         assert safe_path is not None
         assert safe_path.name == filename
         assert safe_path.parent.name == folder
-        assert str(safe_path).startswith(base_folder)
+        # Use resolved path comparison for Windows compatibility
+        base_resolved = Path(base_folder).resolve()
+        safe_resolved = safe_path.resolve()
+        assert str(safe_resolved).startswith(str(base_resolved))
     
     def test_path_traversal_prevention(self, temp_upload_dir):
         """Test that path traversal attacks are prevented."""
