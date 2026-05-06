@@ -1,6 +1,7 @@
 """Storage module for S3 operations."""
 
 from io import BytesIO
+import os
 from .config import STORAGE_ENDPOINT, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STORAGE_BUCKET
 from .security import validate_file_content, get_mime_type
 
@@ -11,6 +12,9 @@ s3_client = None
 def initialize_s3_client(boto3, Config):
     """Initialize S3 client and ensure bucket exists."""
     global s3_client
+    
+    # Check if we're in TESTING mode
+    testing = os.getenv('TESTING', 'false').lower() == 'true'
     
     print("Initializing S3 client...")
     try:
@@ -24,23 +28,25 @@ def initialize_s3_client(boto3, Config):
             region_name="us-east-1",
         )
         
-        # Ensure S3 bucket exists
+        # Ensure S3 bucket exists - don't fail in TESTING mode
         try:
             s3_client.head_bucket(Bucket=STORAGE_BUCKET)
             print(f"S3 bucket '{STORAGE_BUCKET}' is accessible at {STORAGE_ENDPOINT}")
         except:
-            s3_client.create_bucket(Bucket=STORAGE_BUCKET)
-            print(f"Created S3 bucket '{STORAGE_BUCKET}' at {STORAGE_ENDPOINT}")
+            if not testing:
+                s3_client.create_bucket(Bucket=STORAGE_BUCKET)
+                print(f"Created S3 bucket '{STORAGE_BUCKET}' at {STORAGE_ENDPOINT}")
             
     except Exception as s3_init_error:
         print(f"Failed to initialize S3 client: {s3_init_error}")
-        print(f"ERROR: This application requires S3 storage to function")
-        print(f"   Please check your S3 configuration:")
-        print(f"   - STORAGE_ENDPOINT: {STORAGE_ENDPOINT}")
-        print(f"   - STORAGE_ACCESS_KEY: {STORAGE_ACCESS_KEY}")
-        print(f"   - STORAGE_BUCKET: {STORAGE_BUCKET}")
-        print(f"   Make sure your S3 service is running and accessible")
-        exit(1)
+        if not testing:
+            print(f"ERROR: This application requires S3 storage to function")
+            print(f"   Please check your S3 configuration:")
+            print(f"   - STORAGE_ENDPOINT: {STORAGE_ENDPOINT}")
+            print(f"   - STORAGE_ACCESS_KEY: {STORAGE_ACCESS_KEY}")
+            print(f"   - STORAGE_BUCKET: {STORAGE_BUCKET}")
+            print(f"   Make sure your S3 service is running and accessible")
+            exit(1)
     
     return s3_client
 
