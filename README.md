@@ -5,7 +5,7 @@ Uploaded files are accessible through **static URLs** for direct file access.
 
 ---
 
-## 📦 Requirements
+## Requirements
 
 - Python **3.10+**
 - [UV](https://docs.astral.sh/uv/) (fast Python package manager)
@@ -13,7 +13,7 @@ Uploaded files are accessible through **static URLs** for direct file access.
 
 ---
 
-## ⚙️ Setup
+## Setup
 
 ### 1. Install UV
 
@@ -42,7 +42,7 @@ uv --version
 ### 2. Clone and install dependencies
 
 ```sh
-git clone https://github.com/your-org/fileuploader-s3.git
+git clone https://github.com/marcuwynu23/fileuploader-s3.git
 cd fileuploader-s3
 uv sync
 ```
@@ -70,15 +70,15 @@ GxA5FFbcS-N3SBFzy5ZKdATSZ6JGkQktC7ZS1wGKqv4=
 Copy `.env.example` to `.env` and fill in your values:
 
 ```dotenv
-# 🔑 Encryption
+# Encryption
 ENCRYPTION_KEY=GxA5FFbcS-N3SBFzy5ZKdATSZ6JGkQktC7ZS1wGKqv4=
 
-# 🌍 App Config
+# App Config
 BASE_URL=https://yourdomain.com              # Your domain
 ROUTE_PREFIX=/api/bcloud/fileuploader        # API route prefix
 BASE_FOLDER=uploads                          # Local storage folder
 
-# 📦 Storage (S3 / MinIO / Compatible)
+# Storage (S3 / MinIO / Compatible)
 STORAGE_ENDPOINT=https://s3.amazonaws.com    # e.g. http://minio.example.com or https://s3.amazonaws.com
 STORAGE_ACCESS_KEY=your_access_key           # your MinIO/S3 access key
 STORAGE_SECRET_KEY=your_secret_key           # your MinIO/S3 secret key
@@ -107,7 +107,7 @@ http://localhost:2424/api/bcloud/fileuploader
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Upload a file
 
@@ -173,7 +173,7 @@ const mailOptions = {
 
 ---
 
-## 📁 Supported File Types
+## Supported File Types
 
 | Extension | MIME Type | Description |
 |-----------|-----------|-------------|
@@ -188,7 +188,7 @@ const mailOptions = {
 
 ---
 
-## 🛡️ Security Features
+## Security Features
 
 - **Path Traversal Prevention**: Robust validation against `../` and other path attacks
 - **Filename Sanitization**: Removes dangerous characters and spaces
@@ -198,7 +198,7 @@ const mailOptions = {
 
 ---
 
-## 🔄 Backward Compatibility
+## Backward Compatibility
 
 Legacy render endpoints still work and redirect to new static URLs:
 
@@ -213,7 +213,7 @@ https://yourdomain.com/uploads/folder/filename.ext
 
 ---
 
-## 🚀 Production Deployment
+## Production Deployment
 
 ### Nginx Reverse Proxy (Recommended)
 
@@ -266,7 +266,7 @@ uv add waitress
 uv run waitress-serve --host=0.0.0.0 --port=2424 --call fileuploader_s3.main:app
 ```
 
-## 🧪 Testing
+## Testing
 
 ### Install Test Dependencies
 
@@ -302,7 +302,7 @@ https://domain.com/uploads/test/logo.png
 
 ---
 
-## 🛡️ Notes
+## Notes
 
 - `ENCRYPTION_KEY` must be stable across deployments for legacy endpoint compatibility
 - New static URLs don't require encryption tokens
@@ -312,7 +312,7 @@ https://domain.com/uploads/test/logo.png
 
 ---
 
-## 🧰 Tech Stack
+## Tech Stack
 
 - **Flask** (API framework)
 - **UV** (fast Python package manager)
