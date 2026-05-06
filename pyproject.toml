@@ -15,6 +15,7 @@ dependencies = [
     "waitress>=3.0.2",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "prometheus-client>=0.25.0",
 ]
 
 [build-system]

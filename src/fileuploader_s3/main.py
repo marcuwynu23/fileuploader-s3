@@ -1,6 +1,8 @@
 from flask import Flask, Blueprint, request, jsonify, render_template_string, Response, stream_with_context, send_from_directory
 import os
 import logging
+import json
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from flask_cors import CORS
@@ -8,9 +10,33 @@ from werkzeug.utils import secure_filename
 import markdown
 import mimetypes
 import traceback
+from collections import defaultdict, deque
+from threading import Lock
 # Security functions now implemented inline to avoid OpenSSL dependencies
 import re
 import base64
+
+# Optional observability support
+USE_PROMETHEUS = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
+USE_LOKI = os.getenv("USE_LOKI", "false").lower() == "true"
+
+# Prometheus metrics (if enabled)
+prometheus_metrics = None
+if USE_PROMETHEUS:
+    try:
+        from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+        prometheus_metrics = {
+            'upload_requests_total': Counter('fileuploader_uploads_total', 'Total upload requests', ['method', 'status']),
+            'upload_duration_seconds': Histogram('fileuploader_upload_duration_seconds', 'Upload duration in seconds'),
+            'delete_requests_total': Counter('fileuploader_deletes_total', 'Total delete requests', ['method', 'status']),
+            'file_serve_requests_total': Counter('fileuploader_serves_total', 'Total file serve requests', ['status']),
+            'file_size_bytes': Histogram('fileuploader_file_size_bytes', 'Uploaded file size in bytes', ['file_type']),
+            'active_uploads': Gauge('fileuploader_active_uploads', 'Number of active uploads'),
+            'storage_used_bytes': Gauge('fileuploader_storage_used_bytes', 'Storage used in bytes'),
+        }
+    except ImportError:
+        print("Warning: Prometheus client not available. Install with: pip install prometheus-client")
+        USE_PROMETHEUS = False
 
 # Optional S3/MinIO support (can be disabled to avoid OpenSSL dependencies)
 USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
@@ -32,24 +58,81 @@ app = Flask(__name__)
 CORS(app)
 file_uploader = Blueprint("file_uploader", __name__)
 
-# ---- Logging Configuration ----
+# ---- Observability Configuration ----
+class StructuredLogger:
+    """Structured logger for Loki/Promtail compatibility."""
+    
+    def __init__(self, name):
+        self.logger = logging.getLogger(name)
+        self.use_loki = USE_LOKI
+        
+    def _log_structured(self, level, message, **kwargs):
+        """Log with structured data for Loki compatibility."""
+        timestamp = time.time()
+        log_data = {
+            'timestamp': timestamp,
+            'level': level,
+            'message': message,
+            'service': 'fileuploader-s3',
+            **kwargs
+        }
+        
+        # Traditional log format
+        if level == 'ERROR':
+            self.logger.error(f"{message} | {json.dumps(kwargs)}")
+        elif level == 'WARNING':
+            self.logger.warning(f"{message} | {json.dumps(kwargs)}")
+        elif level == 'INFO':
+            self.logger.info(f"{message} | {json.dumps(kwargs)}")
+        else:
+            self.logger.debug(f"{message} | {json.dumps(kwargs)}")
+        
+        # If Loki enabled, you could send to Loki endpoint here
+        # For now, structured logs are written in JSON format for Promtail to parse
+        
+    def info(self, message, **kwargs):
+        self._log_structured('INFO', message, **kwargs)
+        
+    def warning(self, message, **kwargs):
+        self._log_structured('WARNING', message, **kwargs)
+        
+    def error(self, message, **kwargs):
+        self._log_structured('ERROR', message, **kwargs)
+        
+    def debug(self, message, **kwargs):
+        self._log_structured('DEBUG', message, **kwargs)
+
 def setup_logging():
     """Configure application logging for better debugging."""
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    
+    # JSON format for Loki/Promtail compatibility
+    if USE_LOKI:
+        log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    else:
+        log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     
     # Configure root logger
+    handlers = [
+        logging.StreamHandler(),  # Console output
+    ]
+    
+    # File handler - use JSON format for Loki if enabled
+    if USE_LOKI:
+        file_handler = logging.FileHandler('fileuploader.log', encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter('%(message)s'))
+        handlers.append(file_handler)
+    else:
+        handlers.append(logging.FileHandler('fileuploader.log', encoding='utf-8'))
+    
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
         format=log_format,
-        handlers=[
-            logging.StreamHandler(),  # Console output
-            logging.FileHandler('fileuploader.log', encoding='utf-8')  # File output
-        ]
+        handlers=handlers
     )
     
-    # Create specific logger for the application
-    return logging.getLogger(__name__)
+    # Create structured logger for the application
+    return StructuredLogger(__name__)
 
 app_logger = setup_logging()
 
@@ -265,23 +348,34 @@ def initial_render():
 @file_uploader.route("/upload", methods=["POST"])
 def upload_file():
     """Upload a single file and return Gmail-compatible static URL."""
+    start_time = time.time()
+    
     folder = request.form.get("folder")
     if not folder or not validate_folder_name(folder):
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='400').inc()
         return jsonify({"error": "Invalid or missing folder name"}), 400
 
     file = request.files.get("file")
     if not file or not hasattr(file, 'filename') or file.filename == "":
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='400').inc()
         return jsonify({"error": "No file provided"}), 400
 
     # Validate and sanitize filename
     original_filename = file.filename
     if not validate_filename(original_filename):
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='400').inc()
         return jsonify({"error": "Invalid filename"}), 400
         
     if not is_allowed_file_type(original_filename):
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='400').inc()
         return jsonify({"error": f"File type not allowed. Allowed types: {list(ALLOWED_MIME_TYPES.keys())}"}), 400
 
     filename = sanitize_filename(original_filename)
+    file_type = Path(filename).suffix.lower()
     
     # Check file size
     file.seek(0, os.SEEK_END)
@@ -289,14 +383,25 @@ def upload_file():
     file.seek(0)  # Reset file pointer
     
     if file_size > MAX_FILE_SIZE:
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='400').inc()
         return jsonify({"error": f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"}), 400
 
     try:
+        # Track active uploads
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['active_uploads'].inc()
+        
         # Save to local storage for static serving
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
         success, result = save_file_locally(file, folder, filename, base_folder)
         if not success:
-            app_logger.error(f"Failed to save file locally: {result}")
+            app_logger.error("Failed to save file locally", 
+                          folder=folder, filename=filename, error=result, 
+                          file_size=file_size, client_ip=request.remote_addr)
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
+                prometheus_metrics['active_uploads'].dec()
             return jsonify({"error": f"Failed to save file: {result}"}), 500
         
         # Also save to S3 for backup (if enabled)
@@ -304,16 +409,39 @@ def upload_file():
             try:
                 file.seek(0)  # Reset file pointer for S3 upload
                 s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
-                app_logger.info(f"File successfully uploaded to S3: {folder}/{filename}")
+                app_logger.info("File successfully uploaded to S3", 
+                             folder=folder, filename=filename, 
+                             file_size=file_size, backend='s3')
             except Exception as s3_error:
-                app_logger.error(f"S3 upload failed for {folder}/{filename}: {str(s3_error)}\n{traceback.format_exc()}")
+                app_logger.error("S3 upload failed", 
+                              folder=folder, filename=filename, 
+                              error=str(s3_error), backend='s3',
+                              client_ip=request.remote_addr)
                 # If S3 upload fails, still consider it a success if local upload worked
                 # but return the error for debugging
+                if USE_PROMETHEUS and prometheus_metrics:
+                    prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
+                    prometheus_metrics['active_uploads'].dec()
                 return jsonify({"error": f"Upload failed: {str(s3_error)}"}), 500
         
         # Generate Gmail-compatible static URL
         public_url = generate_public_url(BASE_URL, folder, filename)
-        app_logger.info(f"File uploaded successfully: {folder}/{filename} ({file_size} bytes)")
+        duration = time.time() - start_time
+        
+        # Log success with structured data
+        app_logger.info("File uploaded successfully", 
+                      folder=folder, filename=filename, 
+                      file_size=file_size, duration=duration,
+                      url=public_url, backend='local',
+                      client_ip=request.remote_addr)
+        
+        # Update Prometheus metrics
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='200').inc()
+            prometheus_metrics['upload_duration_seconds'].observe(duration)
+            prometheus_metrics['file_size_bytes'].labels(file_type=file_type).observe(file_size)
+            prometheus_metrics['active_uploads'].dec()
+            prometheus_metrics['storage_used_bytes'].inc(file_size)
         
         return jsonify({
             "message": f"File successfully uploaded to /uploads/{folder}/{filename}",
@@ -325,7 +453,13 @@ def upload_file():
         }), 200
         
     except Exception as e:
-        app_logger.error(f"Upload failed for {folder}/{filename}: {str(e)}\n{traceback.format_exc()}")
+        app_logger.error("Upload failed", 
+                      folder=folder, filename=filename,
+                      error=str(e), traceback=traceback.format_exc(),
+                      client_ip=request.remote_addr)
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
+            prometheus_metrics['active_uploads'].dec()
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
@@ -617,28 +751,39 @@ def serve_static_file(filepath):
     This endpoint provides Gmail-compatible static URLs like:
     /uploads/folder/filename.ext
     """
+    start_time = time.time()
+    
     try:
         # Split filepath into folder and filename
         # Allow nested folders for static serving
         path_parts = filepath.rsplit('/', 1)
         if len(path_parts) != 2:
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
             return jsonify({"error": "Invalid file path"}), 400
             
         folder, filename = path_parts
         
         # For nested folders, validate the entire path structure
         if not validate_folder_name(folder):
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
             return jsonify({"error": "Invalid folder path"}), 400
         
         # Get safe file path
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
         file_path = get_safe_file_path(base_folder, folder, filename)
         if not file_path:
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
             return jsonify({"error": "Invalid folder or filename"}), 400
         if not file_path.exists():
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='404').inc()
             return jsonify({"error": "File not found"}), 404
         
-        # Get MIME type
+        # Get file size and MIME type
+        file_size = file_path.stat().st_size
         mime_type = get_mime_type(filename)
         
         # Serve file with proper headers for Gmail compatibility
@@ -649,14 +794,18 @@ def serve_static_file(filepath):
             try:
                 unit, ranges = range_header.split('=', 1)
                 if unit != 'bytes':
+                    if USE_PROMETHEUS and prometheus_metrics:
+                        prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
                     return jsonify({"error": "Only byte ranges supported"}), 400
                 
                 start, end = ranges.split('-', 1)
                 start = int(start) if start else 0
-                end = int(end) if end else file_path.stat().st_size - 1
+                end = int(end) if end else file_size - 1
                 
                 # Validate range
-                if start >= file_path.stat().st_size or end >= file_path.stat().st_size or start > end:
+                if start >= file_size or end >= file_size or start > end:
+                    if USE_PROMETHEUS and prometheus_metrics:
+                        prometheus_metrics['file_serve_requests_total'].labels(status='416').inc()
                     return jsonify({"error": "Invalid range"}), 416
                 
                 # Read partial content
@@ -670,11 +819,21 @@ def serve_static_file(filepath):
                     mimetype=mime_type,
                     direct_passthrough=True
                 )
-                response.headers['Content-Range'] = f'bytes {start}-{end}/{file_path.stat().st_size}'
+                response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
                 response.headers['Accept-Ranges'] = 'bytes'
                 response.headers['Content-Length'] = str(len(content))
                 response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
                 response.headers['Cache-Control'] = 'public, max-age=31536000'
+                
+                # Log partial content serving
+                duration = time.time() - start_time
+                app_logger.info("Partial file served", 
+                              folder=folder, filename=filename,
+                              file_size=file_size, range_start=start, range_end=end,
+                              duration=duration, client_ip=request.remote_addr)
+                
+                if USE_PROMETHEUS and prometheus_metrics:
+                    prometheus_metrics['file_serve_requests_total'].labels(status='206').inc()
                 
                 return response
                 
@@ -699,10 +858,26 @@ def serve_static_file(filepath):
         response.headers['Cache-Control'] = 'public, max-age=31536000'  # 1 year cache
         response.headers['Content-Length'] = str(len(content))
         
+        # Log successful file serving
+        duration = time.time() - start_time
+        app_logger.info("File served successfully", 
+                      folder=folder, filename=filename,
+                      file_size=file_size, duration=duration,
+                      client_ip=request.remote_addr)
+        
+        # Update Prometheus metrics
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['file_serve_requests_total'].labels(status='200').inc()
+        
         return response
         
     except Exception as e:
-        app_logger.error(f"Error serving file {filepath}: {str(e)}\n{traceback.format_exc()}")
+        app_logger.error("Error serving file", 
+                      filepath=filepath, error=str(e), 
+                      traceback=traceback.format_exc(),
+                      client_ip=request.remote_addr)
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['file_serve_requests_total'].labels(status='500').inc()
         return jsonify({"error": f"Error serving file: {str(e)}"}), 500
 
 # ---- Legacy Render Endpoint (Backward Compatibility) ----
@@ -735,35 +910,45 @@ def render_file(token):
         app_logger.error(f"Error processing legacy render token {token}: {str(e)}\n{traceback.format_exc()}")
         return jsonify({"error": f"Error processing file: {str(e)}"}), 500
 
-
-# ---- Delete ----
 @file_uploader.route("/delete/<token>", methods=["DELETE"])
 def delete_file(token):
     """Delete a file from both local storage and S3."""
+    start_time = time.time()
+    
     key = decrypt_key(token)
     if not key:
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
         return jsonify({"error": "Invalid token"}), 400
 
     try:
         # Extract folder and filename
         path_parts = key.split('/', 1)
         if len(path_parts) != 2:
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
             return jsonify({"error": "Invalid file key"}), 400
             
         folder, filename = path_parts
         
         # Validate folder and filename for security
         if not validate_folder_name(folder) or not validate_filename(filename):
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
             return jsonify({"error": "Invalid folder or filename"}), 400
         
         # Check for nested folders (not supported)
         if '/' in filename or '\\' in filename:
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
             return jsonify({"error": "Nested folders not supported"}), 400
         
         # Delete from local storage
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
         file_path = get_safe_file_path(base_folder, folder, filename)
+        file_size = 0
         if file_path and file_path.exists():
+            file_size = file_path.stat().st_size
             file_path.unlink()
             
             # Try to remove folder if empty
@@ -778,11 +963,32 @@ def delete_file(token):
         if USE_S3 and s3_client:
             try:
                 s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
+                app_logger.info("File deleted from S3", 
+                             folder=folder, filename=filename, 
+                             backend='s3', client_ip=request.remote_addr)
             except Exception as s3_error:
-                app_logger.error(f"S3 deletion failed for {key}: {str(s3_error)}\n{traceback.format_exc()}")
+                app_logger.error("S3 deletion failed", 
+                              folder=folder, filename=filename,
+                              error=str(s3_error), backend='s3',
+                              client_ip=request.remote_addr)
                 # If S3 deletion fails, still consider it a success if local deletion worked
                 # but return the error for debugging
+                if USE_PROMETHEUS and prometheus_metrics:
+                    prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='500').inc()
                 return jsonify({"error": f"Delete failed: {str(s3_error)}"}), 500
+        
+        duration = time.time() - start_time
+        
+        # Log successful deletion
+        app_logger.info("File deleted successfully", 
+                      folder=folder, filename=filename,
+                      file_size=file_size, duration=duration,
+                      backend='local', client_ip=request.remote_addr)
+        
+        # Update Prometheus metrics
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='200').inc()
+            prometheus_metrics['storage_used_bytes'].dec(file_size)
         
         return jsonify({
             "message": f"File {filename} deleted successfully",
@@ -791,9 +997,40 @@ def delete_file(token):
         }), 200
         
     except Exception as e:
-        app_logger.error(f"Delete failed for {key}: {str(e)}\n{traceback.format_exc()}")
+        app_logger.error("Delete failed", 
+                      folder=folder if 'folder' in locals() else 'unknown',
+                      filename=filename if 'filename' in locals() else 'unknown',
+                      error=str(e), traceback=traceback.format_exc(),
+                      client_ip=request.remote_addr)
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='500').inc()
         return jsonify({"error": f"Delete failed: {str(e)}"}), 500
 
+
+# ---- Prometheus Metrics Endpoint ----
+@app.route("/metrics")
+def metrics():
+    """Prometheus metrics endpoint."""
+    if USE_PROMETHEUS and prometheus_metrics:
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+    else:
+        return jsonify({"error": "Prometheus metrics not enabled"}), 404
+
+# ---- Health Check Endpoint ----
+@app.route("/health")
+def health_check():
+    """Health check endpoint with observability status."""
+    health_status = {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "observability": {
+            "prometheus_enabled": USE_PROMETHEUS,
+            "loki_enabled": USE_LOKI,
+            "s3_enabled": USE_S3
+        }
+    }
+    return jsonify(health_status)
 
 # Register blueprint
 app.register_blueprint(file_uploader, url_prefix=ROUTE_PREFIX)
