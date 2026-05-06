@@ -8,6 +8,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 import io
+import sys
 
 # Set environment variables to bypass OpenSSL issues
 os.environ['OPENSSL_CONF'] = ''
@@ -22,37 +23,37 @@ os.environ.update({
     'STORAGE_ACCESS_KEY': 'test-access-key',
     'STORAGE_SECRET_KEY': 'test-secret-key',
     'STORAGE_BUCKET': 'test-bucket',
-    'USE_S3': 'false',  # Disable S3 for testing to avoid OpenSSL dependency
-    'USE_PROMETHEUS': 'True',  # Enable Prometheus for observability test
-    'TESTING': 'true'  # Enable test mode for higher rate limits
+    'USE_S3': 'false',
+    'USE_PROMETHEUS': 'True',
+    'TESTING': 'true'
 })
+
+# Mock boto3 and related modules BEFORE any imports from the project!
+mock_boto3 = Mock()
+mock_client = Mock()
+mock_client.head_bucket.return_value = {'ResponseMetadata': {'HTTPStatusCode': 200}}
+mock_client.upload_fileobj.return_value = None
+mock_client.delete_object.return_value = None
+mock_client.get_object.return_value = {
+    'Body': Mock(),
+    'ContentLength': 1024
+}
+mock_boto3.client.return_value = mock_client
+
+mock_magic = Mock()
+mock_magic.from_buffer.return_value = 'image/png'
+
+# Apply patches globally before any project imports
+sys.modules['boto3'] = mock_boto3
+sys.modules['botocore'] = Mock()
+sys.modules['botocore.client'] = Mock()
+sys.modules['urllib3'] = Mock()
+sys.modules['magic'] = mock_magic
 
 @pytest.fixture
 def mock_s3_dependencies():
     """Mock S3 dependencies to avoid OpenSSL issues."""
-    mock_boto3 = Mock()
-    mock_client = Mock()
-    mock_client.head_bucket.return_value = {'ResponseMetadata': {'HTTPStatusCode': 200}}
-    mock_client.upload_fileobj.return_value = None
-    mock_client.delete_object.return_value = None
-    mock_client.get_object.return_value = {
-        'Body': Mock(),
-        'ContentLength': 1024
-    }
-    mock_boto3.client.return_value = mock_client
-    
-    # Mock magic library to avoid import issues
-    mock_magic = Mock()
-    mock_magic.from_buffer.return_value = 'image/png'
-    
-    with patch.dict('sys.modules', {
-        'boto3': mock_boto3,
-        'botocore': Mock(),
-        'botocore.client': Mock(),
-        'urllib3': Mock(),
-        'magic': mock_magic,
-    }):
-        yield mock_boto3
+    yield mock_boto3
 
 @pytest.fixture
 def client(mock_s3_dependencies):
