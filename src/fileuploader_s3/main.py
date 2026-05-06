@@ -1,11 +1,13 @@
 from flask import Flask, Blueprint, request, jsonify, render_template_string, Response, stream_with_context, send_from_directory
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import markdown
 import mimetypes
+import traceback
 # Security functions now implemented inline to avoid OpenSSL dependencies
 import re
 import base64
@@ -29,6 +31,27 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 file_uploader = Blueprint("file_uploader", __name__)
+
+# ---- Logging Configuration ----
+def setup_logging():
+    """Configure application logging for better debugging."""
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format=log_format,
+        handlers=[
+            logging.StreamHandler(),  # Console output
+            logging.FileHandler('fileuploader.log', encoding='utf-8')  # File output
+        ]
+    )
+    
+    # Create specific logger for the application
+    return logging.getLogger(__name__)
+
+app_logger = setup_logging()
 
 # ---- Config ----
 BASE_URL = os.getenv("BASE_URL", "http://localhost:2424")
@@ -209,6 +232,8 @@ def save_file_locally(file, folder: str, filename: str, base_folder: str = None)
             
         file_path = folder_path / filename
         file.save(str(file_path))
+        # Ensure file handle is closed to prevent Windows file locking issues
+        file.close()
         return True, str(file_path)
     except Exception as e:
         return False, str(e)
@@ -271,6 +296,7 @@ def upload_file():
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
         success, result = save_file_locally(file, folder, filename, base_folder)
         if not success:
+            app_logger.error(f"Failed to save file locally: {result}")
             return jsonify({"error": f"Failed to save file: {result}"}), 500
         
         # Also save to S3 for backup (if enabled)
@@ -278,13 +304,16 @@ def upload_file():
             try:
                 file.seek(0)  # Reset file pointer for S3 upload
                 s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+                app_logger.info(f"File successfully uploaded to S3: {folder}/{filename}")
             except Exception as s3_error:
+                app_logger.error(f"S3 upload failed for {folder}/{filename}: {str(s3_error)}\n{traceback.format_exc()}")
                 # If S3 upload fails, still consider it a success if local upload worked
                 # but return the error for debugging
                 return jsonify({"error": f"Upload failed: {str(s3_error)}"}), 500
         
         # Generate Gmail-compatible static URL
         public_url = generate_public_url(BASE_URL, folder, filename)
+        app_logger.info(f"File uploaded successfully: {folder}/{filename} ({file_size} bytes)")
         
         return jsonify({
             "message": f"File successfully uploaded to /uploads/{folder}/{filename}",
@@ -296,6 +325,7 @@ def upload_file():
         }), 200
         
     except Exception as e:
+        app_logger.error(f"Upload failed for {folder}/{filename}: {str(e)}\n{traceback.format_exc()}")
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
 
 
@@ -468,6 +498,7 @@ def upload_chunk():
             return jsonify({"message": f"Chunk {chunk_index + 1} uploaded successfully."}), 200
             
     except Exception as e:
+        app_logger.error(f"Chunk upload failed for {folder}/{filename}: {str(e)}\n{traceback.format_exc()}")
         return jsonify({"error": f"Chunk upload failed: {str(e)}"}), 500
 
 
@@ -651,21 +682,27 @@ def serve_static_file(filepath):
                 # If range parsing fails, serve full file
                 pass
         
-        response = send_from_directory(
-            str(file_path.parent),
-            file_path.name,
+        # Read file content manually to ensure proper file handle management
+        with open(file_path, 'rb') as f:
+            content = f.read()
+        
+        response = Response(
+            content,
+            200,
             mimetype=mime_type,
-            as_attachment=False
+            direct_passthrough=True
         )
         
         # Add Gmail-friendly headers
         response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
         response.headers['Accept-Ranges'] = 'bytes'
         response.headers['Cache-Control'] = 'public, max-age=31536000'  # 1 year cache
+        response.headers['Content-Length'] = str(len(content))
         
         return response
         
     except Exception as e:
+        app_logger.error(f"Error serving file {filepath}: {str(e)}\n{traceback.format_exc()}")
         return jsonify({"error": f"Error serving file: {str(e)}"}), 500
 
 # ---- Legacy Render Endpoint (Backward Compatibility) ----
@@ -695,6 +732,7 @@ def render_file(token):
         return redirect(static_url, code=301)
         
     except Exception as e:
+        app_logger.error(f"Error processing legacy render token {token}: {str(e)}\n{traceback.format_exc()}")
         return jsonify({"error": f"Error processing file: {str(e)}"}), 500
 
 
@@ -741,6 +779,7 @@ def delete_file(token):
             try:
                 s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
             except Exception as s3_error:
+                app_logger.error(f"S3 deletion failed for {key}: {str(s3_error)}\n{traceback.format_exc()}")
                 # If S3 deletion fails, still consider it a success if local deletion worked
                 # but return the error for debugging
                 return jsonify({"error": f"Delete failed: {str(s3_error)}"}), 500
@@ -752,6 +791,7 @@ def delete_file(token):
         }), 200
         
     except Exception as e:
+        app_logger.error(f"Delete failed for {key}: {str(e)}\n{traceback.format_exc()}")
         return jsonify({"error": f"Delete failed: {str(e)}"}), 500
 
 

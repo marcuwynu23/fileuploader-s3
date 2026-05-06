@@ -198,9 +198,6 @@ class TestEndToEndWorkflows:
             from src.fileuploader_s3.main import encrypt_key
             token = encrypt_key('workflow_test', 'test.png')
             
-            # Reset file pointer to ensure it's closed
-            sample_image_file.seek(0)
-            
             delete_response = client.delete(f'/api/test/fileuploader/delete/{token}')
             assert delete_response.status_code == 200
             
