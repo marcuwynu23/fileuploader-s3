@@ -137,7 +137,7 @@ class TestSingleUpload:
         """Test upload with file exceeding size limit."""
         # Create a large file (larger than default 50MB limit)
         large_content = b'x' * (60 * 1024 * 1024)  # 60MB
-        large_file = (large_content, 'large.png', 'image/png')
+        large_file = (io.BytesIO(large_content), 'large.png', 'image/png')
         
         data = {
             'folder': 'test',
