@@ -62,6 +62,10 @@ def validate_folder_name(folder: str) -> bool:
     if not folder or not isinstance(folder, str):
         return False
     
+    # Check length (prevent very long names)
+    if len(folder) > 255:
+        return False
+    
     # Check for blocked patterns
     for pattern in SecurityConfig.BLOCKED_PATTERNS:
         if re.search(pattern, folder, re.IGNORECASE):
@@ -85,6 +89,10 @@ def validate_filename(filename: str) -> bool:
         True if safe, False otherwise
     """
     if not filename or not isinstance(filename, str):
+        return False
+    
+    # Check length (prevent very long names)
+    if len(filename) > 255:
         return False
     
     # Check for blocked patterns
@@ -121,10 +129,16 @@ def get_safe_file_path(base_folder: str, folder: str, filename: str) -> Optional
         file_path = folder_path / filename
         
         # Ensure the final path is within the base directory
-        if not str(file_path.resolve()).startswith(str(base_path)):
+        file_path_resolved = file_path.resolve()
+        base_path_resolved = base_path.resolve()
+        
+        # Use Path comparison for more robust checking
+        try:
+            file_path_resolved.relative_to(base_path_resolved)
+            return file_path_resolved
+        except ValueError:
+            # Path is outside base directory
             return None
-            
-        return file_path
     except (ValueError, OSError):
         return None
 

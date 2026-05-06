@@ -61,10 +61,12 @@ def create_folder_if_not_exists(folder_path: Path) -> bool:
     except OSError:
         return False
 
-def save_file_locally(file, folder: str, filename: str) -> tuple[bool, str]:
+def save_file_locally(file, folder: str, filename: str, base_folder: str = None) -> tuple[bool, str]:
     """Save file to local storage for static serving."""
     try:
-        folder_path = Path(BASE_FOLDER) / folder
+        if base_folder is None:
+            base_folder = BASE_FOLDER
+        folder_path = Path(base_folder) / folder
         if not create_folder_if_not_exists(folder_path):
             return False, "Failed to create folder"
             
@@ -106,7 +108,7 @@ def upload_file():
         return jsonify({"error": "Invalid or missing folder name"}), 400
 
     file = request.files.get("file")
-    if not file or file.filename == "":
+    if not file or not hasattr(file, 'filename') or file.filename == "":
         return jsonify({"error": "No file provided"}), 400
 
     # Validate and sanitize filename
@@ -129,7 +131,8 @@ def upload_file():
 
     try:
         # Save to local storage for static serving
-        success, result = save_file_locally(file, folder, filename)
+        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
+        success, result = save_file_locally(file, folder, filename, base_folder)
         if not success:
             return jsonify({"error": f"Failed to save file: {result}"}), 500
         
@@ -239,7 +242,7 @@ def upload_chunk():
         return jsonify({"error": "Invalid or missing folder name"}), 400
 
     file = request.files.get("file")
-    if not file or file.filename == "":
+    if not file or not hasattr(file, 'filename') or file.filename == "":
         return jsonify({"error": "No file provided"}), 400
 
     chunk_index = int(request.form.get("dzchunkindex", 0))
@@ -257,7 +260,8 @@ def upload_chunk():
     
     try:
         # Create temporary folder for chunks
-        temp_folder = Path(BASE_FOLDER) / "temp" / folder
+        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
+        temp_folder = Path(base_folder) / "temp" / folder
         temp_folder.mkdir(parents=True, exist_ok=True)
         
         # Save chunk
@@ -267,7 +271,7 @@ def upload_chunk():
         # Check if this is the last chunk
         if chunk_index == total_chunks - 1:
             # Combine all chunks
-            final_folder = Path(BASE_FOLDER) / folder
+            final_folder = Path(base_folder) / folder
             final_folder.mkdir(parents=True, exist_ok=True)
             final_path = final_folder / filename
             
@@ -346,7 +350,8 @@ def upload_multiple_chunks():
         
         try:
             # Create temporary folder for chunks
-            temp_folder = Path(BASE_FOLDER) / "temp" / folder
+            base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
+            temp_folder = Path(base_folder) / "temp" / folder
             temp_folder.mkdir(parents=True, exist_ok=True)
             
             # Save chunk
@@ -356,7 +361,7 @@ def upload_multiple_chunks():
             # Check if this is the last chunk for this file
             if chunk_index == total_chunks - 1:
                 # Combine all chunks
-                final_folder = Path(BASE_FOLDER) / folder
+                final_folder = Path(base_folder) / folder
                 final_folder.mkdir(parents=True, exist_ok=True)
                 final_path = final_folder / filename
                 
@@ -391,10 +396,12 @@ def upload_multiple_chunks():
     # Clean up temp folders if all files are complete
     if uploaded_files:
         try:
-            temp_folder = Path(BASE_FOLDER) / "temp" / folder
+            temp_folder = Path(base_folder) / "temp" / folder
             if temp_folder.exists() and not any(temp_folder.iterdir()):
                 temp_folder.rmdir()
-                Path(BASE_FOLDER / "temp").rmdir()
+                temp_base = Path(base_folder) / "temp"
+                if temp_base.exists():
+                    temp_base.rmdir()
         except OSError:
             pass
     
@@ -435,8 +442,11 @@ def serve_static_file(filepath):
             return jsonify({"error": "Invalid folder or filename"}), 400
         
         # Get safe file path
-        file_path = get_safe_file_path(BASE_FOLDER, folder, filename)
-        if not file_path or not file_path.exists():
+        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
+        file_path = get_safe_file_path(base_folder, folder, filename)
+        if not file_path:
+            return jsonify({"error": "Invalid folder or filename"}), 400
+        if not file_path.exists():
             return jsonify({"error": "File not found"}), 404
         
         # Get MIME type
@@ -506,8 +516,17 @@ def delete_file(token):
             
         folder, filename = path_parts
         
+        # Validate folder and filename for security
+        if not validate_folder_name(folder) or not validate_filename(filename):
+            return jsonify({"error": "Invalid folder or filename"}), 400
+        
+        # Check for nested folders (not supported)
+        if '/' in folder or '\\' in folder:
+            return jsonify({"error": "Nested folders not supported"}), 400
+        
         # Delete from local storage
-        file_path = get_safe_file_path(BASE_FOLDER, folder, filename)
+        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
+        file_path = get_safe_file_path(base_folder, folder, filename)
         if file_path and file_path.exists():
             file_path.unlink()
             
