@@ -20,23 +20,21 @@ import base64
 USE_PROMETHEUS = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
 USE_LOKI = os.getenv("USE_LOKI", "false").lower() == "true"
 
-# Prometheus metrics (if enabled)
+# Prometheus metrics (always initialize but only use if enabled)
 prometheus_metrics = None
-if USE_PROMETHEUS:
-    try:
-        from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-        prometheus_metrics = {
-            'upload_requests_total': Counter('fileuploader_uploads_total', 'Total upload requests', ['method', 'status']),
-            'upload_duration_seconds': Histogram('fileuploader_upload_duration_seconds', 'Upload duration in seconds'),
-            'delete_requests_total': Counter('fileuploader_deletes_total', 'Total delete requests', ['method', 'status']),
-            'file_serve_requests_total': Counter('fileuploader_serves_total', 'Total file serve requests', ['status']),
-            'file_size_bytes': Histogram('fileuploader_file_size_bytes', 'Uploaded file size in bytes', ['file_type']),
-            'active_uploads': Gauge('fileuploader_active_uploads', 'Number of active uploads'),
-            'storage_used_bytes': Gauge('fileuploader_storage_used_bytes', 'Storage used in bytes'),
-        }
-    except ImportError:
-        print("Warning: Prometheus client not available. Install with: pip install prometheus-client")
-        USE_PROMETHEUS = False
+try:
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+    prometheus_metrics = {
+        'upload_requests_total': Counter('fileuploader_uploads_total', 'Total upload requests', ['method', 'status']),
+        'upload_duration_seconds': Histogram('fileuploader_upload_duration_seconds', 'Upload duration in seconds'),
+        'delete_requests_total': Counter('fileuploader_deletes_total', 'Total delete requests', ['method', 'status']),
+        'file_serve_requests_total': Counter('fileuploader_serves_total', 'Total file serve requests', ['status']),
+        'file_size_bytes': Histogram('fileuploader_file_size_bytes', 'Uploaded file size in bytes', ['file_type']),
+        'active_uploads': Gauge('fileuploader_active_uploads', 'Number of active uploads'),
+        'storage_used_bytes': Gauge('fileuploader_storage_used_bytes', 'Storage used in bytes'),
+    }
+except ImportError:
+    print("Warning: Prometheus client not available. Install with: pip install prometheus-client")
 
 # Optional S3/MinIO support (can be disabled to avoid OpenSSL dependencies)
 USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
@@ -1021,24 +1019,31 @@ def delete_file(token):
 # ---- Prometheus Metrics Endpoint ----
 @app.route("/metrics")
 def metrics():
-    """Prometheus metrics endpoint."""
-    if USE_PROMETHEUS and prometheus_metrics:
+    """Prometheus metrics endpoint - always available in production."""
+    try:
         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
-    else:
-        return jsonify({"error": "Prometheus metrics not enabled"}), 404
+    except ImportError:
+        return jsonify({"error": "Prometheus client not installed"}), 503
+    except Exception as e:
+        return jsonify({"error": f"Metrics generation failed: {str(e)}"}), 500
 
 # ---- Health Check Endpoint ----
 @app.route("/health")
 def health_check():
     """Health check endpoint with observability status."""
+    # Check environment variables dynamically to allow runtime changes
+    current_use_prometheus = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
+    current_use_loki = os.getenv("USE_LOKI", "false").lower() == "true"
+    current_use_s3 = os.getenv("USE_S3", "false").lower() == "true"
+    
     health_status = {
         "status": "healthy",
         "timestamp": time.time(),
         "observability": {
-            "prometheus_enabled": USE_PROMETHEUS,
-            "loki_enabled": USE_LOKI,
-            "s3_enabled": USE_S3
+            "prometheus_enabled": current_use_prometheus,
+            "loki_enabled": current_use_loki,
+            "s3_enabled": current_use_s3
         }
     }
     return jsonify(health_status)
