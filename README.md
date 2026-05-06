@@ -1,4 +1,4 @@
-# File Uploader Web Service
+# Bucket Storage File Uploader API
 
 This service provides a secure file uploader backed by **S3-compatible storage** (MinIO, AWS S3, etc.).  
 Uploaded files are accessible through **static URLs** for direct file access.
