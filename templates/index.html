@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+    <title>Bucket Storage Uploader API - Bucket File Storage Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: false, // or 'media' or 'class'
+        }
+    </script>
+    <script src="https://cdn.tailwindcss.com/3.4.1/tailwind.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+        rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+        rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .code-block {
+            background: #2d2d2d;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+
+        .endpoint-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+
+        .endpoint-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border-left-color: #667eea;
+        }
+
+        .method-badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            text-transform: uppercase;
+        }
+
+        .method-get {
+            background: #10b981;
+            color: white;
+        }
+
+        .method-post {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .method-delete {
+            background: #ef4444;
+            color: white;
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.6s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            color: white;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="gradient-bg shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fas fa-cloud-upload-alt text-white text-2xl mr-3"></i>
+                    <span class="text-white text-xl font-bold">Bucket Storage Uploader API</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="#features"
+                        class="text-white hover:text-gray-200 transition-colors">Features</a>
+                    <a href="#api"
+                        class="text-white hover:text-gray-200 transition-colors">API</a>
+                    <a href="#docs"
+                        class="text-white hover:text-gray-200 transition-colors">Documentation</a>
+                    <a href="#try-it"
+                        class="bg-white text-purple-600 px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors">Try
+                        It</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="gradient-bg text-white py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div class="animate-fade-in">
+                <h1 class="text-4xl md:text-6xl font-bold mb-6">
+                    Bucket Storage Uploader API
+                </h1>
+                <p class="text-xl md:text-2xl mb-8 text-purple-100">
+                    Secure, scalable, and lightning-fast file uploads with S3 storage
+                </p>
+                <div class="flex flex-wrap justify-center gap-4 mb-12">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt text-2xl"></i>
+                    </div>
+                    <div class="feature-icon">
+                        <i class="fas fa-rocket text-2xl"></i>
+                    </div>
+                    <div class="feature-icon">
+                        <i class="fas fa-cloud text-2xl"></i>
+                    </div>
+                    <div class="feature-icon">
+                        <i class="fas fa-code text-2xl"></i>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+                    <div>
+                        <div class="text-3xl font-bold mb-2">50MB</div>
+                        <div class="text-purple-100">Max File Size</div>
+                    </div>
+                    <div>
+                        <div class="text-3xl font-bold mb-2">12+</div>
+                        <div class="text-purple-100">File Types</div>
+                    </div>
+                    <div>
+                        <div class="text-3xl font-bold mb-2">S3</div>
+                        <div class="text-purple-100">Storage Backend</div>
+                    </div>
+                    <div>
+                        <div class="text-3xl font-bold mb-2">100%</div>
+                        <div class="text-purple-100">Secure</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features"
+        class="py-16 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-gray-900 mb-4">Powerful Features</h2>
+                <p class="text-xl text-gray-600">Everything you need for modern file management</p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <div class="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-upload text-blue-600 text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">Multiple Upload Methods</h3>
+                    <p class="text-gray-600">Single file, multiple files, and chunked uploads for large files</p>
+                </div>
+
+                <div class="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-cloud text-green-600 text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">S3 Storage</h3>
+                    <p class="text-gray-600">Scalable cloud storage with automatic bucket management</p>
+                </div>
+
+                <div class="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-link text-purple-600 text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">Static URLs</h3>
+                    <p class="text-gray-600">Gmail-compatible direct file access URLs</p>
+                </div>
+
+                <div class="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-shield-alt text-red-600 text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">Security First</h3>
+                    <p class="text-gray-600">Path traversal protection, file validation, and encryption</p>
+                </div>
+
+                <div class="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-tachometer-alt text-yellow-600 text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">Performance</h3>
+                    <p class="text-gray-600">Optimized for speed with caching and CDN support</p>
+                </div>
+
+                <div class="text-center p-6 rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-chart-line text-indigo-600 text-2xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold mb-2">Observability</h3>
+                    <p class="text-gray-600">Prometheus metrics and structured logging</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- API Section -->
+    <section id="api"
+        class="py-16 bg-gray-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-gray-900 mb-4">API Endpoints</h2>
+                <p class="text-xl text-gray-600">Complete REST API for file management</p>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex justify-center mb-8">
+                <div class="bg-white rounded-lg shadow-md p-1 inline-flex">
+                    <button onclick="showTab('upload')"
+                        class="tab-btn px-6 py-2 rounded-md font-medium transition-colors"
+                        data-tab="upload">Upload</button>
+                    <button onclick="showTab('access')"
+                        class="tab-btn px-6 py-2 rounded-md font-medium transition-colors"
+                        data-tab="access">Access</button>
+                    <button onclick="showTab('manage')"
+                        class="tab-btn px-6 py-2 rounded-md font-medium transition-colors"
+                        data-tab="manage">Manage</button>
+                    <button onclick="showTab('system')"
+                        class="tab-btn px-6 py-2 rounded-md font-medium transition-colors"
+                        data-tab="system">System</button>
+                </div>
+            </div>
+
+            <!-- Upload Tab -->
+            <div id="upload-tab"
+                class="tab-content active">
+                <div class="space-y-6">
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Upload Single File</h3>
+                            <span class="method-badge method-post">POST</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/api/fileuploader/upload</code>
+                        <p class="text-gray-600 mb-4">Upload a single file to a specified folder.</p>
+
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <h4 class="font-semibold mb-2">Request</h4>
+                                <div class="bg-gray-50 p-4 rounded">
+                                    <pre class="text-sm"><code>curl -X POST {base_url}/api/fileuploader/upload \
+  -F "folder=documents" \
+  -F "file=@example.pdf"</code></pre>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-2">Response</h4>
+                                <div class="bg-green-50 p-4 rounded">
+                                    <pre class="text-sm"><code>{
+  "message": "File successfully uploaded",
+  "url": "{base_url}/uploads/documents/example.pdf",
+  "filename": "example.pdf",
+  "folder": "documents",
+  "size": 1024000,
+  "mime_type": "application/pdf"
+}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Upload Multiple Files</h3>
+                            <span class="method-badge method-post">POST</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/api/fileuploader/upload_multi</code>
+                        <p class="text-gray-600 mb-4">Upload multiple files in a single request.</p>
+                    </div>
+
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Upload Chunks</h3>
+                            <span class="method-badge method-post">POST</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/api/fileuploader/upload_chunk</code>
+                        <p class="text-gray-600 mb-4">Upload large files in chunks for better reliability.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Access Tab -->
+            <div id="access-tab"
+                class="tab-content">
+                <div class="space-y-6">
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Static File Access</h3>
+                            <span class="method-badge method-get">GET</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/uploads/&lt;filepath&gt;</code>
+                        <p class="text-gray-600 mb-4">Direct file access with proper MIME types and caching.</p>
+                    </div>
+
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Legacy Render</h3>
+                            <span class="method-badge method-get">GET</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/api/fileuploader/render/&lt;token&gt;</code>
+                        <p class="text-gray-600 mb-4">Legacy endpoint - redirects to new static URL.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manage Tab -->
+            <div id="manage-tab"
+                class="tab-content">
+                <div class="space-y-6">
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Delete File</h3>
+                            <span class="method-badge method-delete">DELETE</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/api/fileuploader/delete/&lt;token&gt;</code>
+                        <p class="text-gray-600 mb-4">Delete a file using encrypted token.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Tab -->
+            <div id="system-tab"
+                class="tab-content">
+                <div class="space-y-6">
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Health Check</h3>
+                            <span class="method-badge method-get">GET</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/health</code>
+                        <p class="text-gray-600 mb-4">Check system health and observability status.</p>
+                    </div>
+
+                    <div class="endpoint-card bg-white p-6 rounded-lg shadow-md">
+                        <div class="flex items-start justify-between mb-4">
+                            <h3 class="text-xl font-semibold">Metrics</h3>
+                            <span class="method-badge method-get">GET</span>
+                        </div>
+                        <code class="block bg-gray-100 p-3 rounded mb-4">/metrics</code>
+                        <p class="text-gray-600 mb-4">Prometheus metrics endpoint (when enabled).</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Try It Section -->
+    <section id="try-it"
+        class="py-16 bg-white">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-gray-900 mb-4">Try It Now</h2>
+                <p class="text-xl text-gray-600">Test the API with our interactive demo</p>
+            </div>
+
+            <div class="bg-gray-50 rounded-xl p-8">
+                <div class="max-w-2xl mx-auto">
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Folder</label>
+                        <input type="text"
+                            id="folder-input"
+                            placeholder="documents"
+                            value="demo"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Choose File</label>
+                        <div class="relative">
+                            <input type="file"
+                                id="file-input"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                            <div class="mt-2 text-sm text-gray-500"
+                                id="file-info"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-center">
+                        <button onclick="uploadFile()"
+                            class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 transition-all transform hover:scale-105">
+                            <i class="fas fa-cloud-upload-alt mr-2"></i>
+                            Upload File
+                        </button>
+                    </div>
+
+                    <div id="upload-result"
+                        class="mt-6 hidden">
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <h4 class="font-semibold text-green-800 mb-2">Upload Successful!</h4>
+                            <div id="result-details"
+                                class="text-sm text-gray-700"></div>
+                        </div>
+                    </div>
+
+                    <div id="upload-error"
+                        class="mt-6 hidden">
+                        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                            <h4 class="font-semibold text-red-800 mb-2">Upload Failed</h4>
+                            <div id="error-details"
+                                class="text-sm text-gray-700"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="gradient-bg text-white py-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-4 md:mb-0">
+                    <div class="flex items-center">
+                        <i class="fas fa-cloud-upload-alt text-2xl mr-3"></i>
+                        <span class="text-xl font-semibold">Bucket Storage Uploader API</span>
+                    </div>
+                    <p class="text-purple-100 mt-2">Modern file storage solution</p>
+                </div>
+                <div class="flex space-x-6">
+                    <a href="#api"
+                        class="hover:text-purple-200 transition-colors">API</a>
+                    <a href="#docs"
+                        class="hover:text-purple-200 transition-colors">Documentation</a>
+                    <a href="https://github.com"
+                        class="hover:text-purple-200 transition-colors">
+                        <i class="fab fa-github"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="mt-8 pt-8 border-t border-purple-400 text-center text-purple-100">
+                <p>&copy; 2024 Bucket Storage File Uploader API. Built with security and performance in mind.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Get base URL from current page
+        const baseUrl = window.location.origin;
+
+        // Replace {base_url} in code examples
+        document.addEventListener('DOMContentLoaded', function () {
+            const codeElements = document.querySelectorAll('code');
+            const placeholder = '{base_url}';
+            codeElements.forEach(el => {
+                if (el.textContent.includes(placeholder)) {
+                    el.textContent = el.textContent.split(placeholder).join(baseUrl);
+                }
+            });
+        });
+
+        // Tab functionality
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Remove active state from all buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-purple-600', 'text-white');
+                btn.classList.add('text-gray-600', 'hover:text-gray-800');
+            });
+
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+
+            // Highlight active button
+            const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+            activeBtn.classList.remove('text-gray-600', 'hover:text-gray-800');
+            activeBtn.classList.add('bg-purple-600', 'text-white');
+        }
+
+        // Initialize first tab as active
+        showTab('upload');
+
+        // File upload functionality
+        document.getElementById('file-input').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const fileSize = (file.size / 1024 / 1024).toFixed(2);
+                const fileType = file.type || 'Unknown';
+                document.getElementById('file-info').textContent =
+                    `Size: ${fileSize} MB | Type: ${fileType}`;
+            }
+        });
+
+        function uploadFile() {
+            const fileInput = document.getElementById('file-input');
+            const folderInput = document.getElementById('folder-input');
+            const file = fileInput.files[0];
+            const folder = folderInput.value;
+
+            if (!file) {
+                showError('Please select a file to upload');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('folder', folder);
+
+            // Show loading state
+            const uploadBtn = document.querySelector('button[onclick="uploadFile()"]');
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Uploading...';
+
+            fetch(`${baseUrl}/api/fileuploader/upload`, {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.url) {
+                        showSuccess(data);
+                    } else {
+                        showError(data.error || 'Upload failed');
+                    }
+                })
+                .catch(error => {
+                    showError('Network error: ' + error.message);
+                })
+                .finally(() => {
+                    // Reset button state
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i>Upload File';
+                });
+        }
+
+        function showSuccess(data) {
+            const resultDiv = document.getElementById('upload-result');
+            const errorDiv = document.getElementById('upload-error');
+            const detailsDiv = document.getElementById('result-details');
+
+            errorDiv.classList.add('hidden');
+            resultDiv.classList.remove('hidden');
+
+            detailsDiv.innerHTML = `
+                <div class="space-y-2">
+                    <div><strong>URL:</strong> <a href="${data.url}" target="_blank" class="text-blue-600 hover:underline">${data.url}</a></div>
+                    <div><strong>Filename:</strong> ${data.filename}</div>
+                    <div><strong>Folder:</strong> ${data.folder}</div>
+                    <div><strong>Size:</strong> ${(data.size / 1024 / 1024).toFixed(2)} MB</div>
+                    <div><strong>Type:</strong> ${data.mime_type}</div>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            const resultDiv = document.getElementById('upload-result');
+            const errorDiv = document.getElementById('upload-error');
+            const detailsDiv = document.getElementById('error-details');
+
+            resultDiv.classList.add('hidden');
+            errorDiv.classList.remove('hidden');
+
+            detailsDiv.textContent = message;
+        }
+    </script>
+</body>
+
+</html>
