@@ -149,7 +149,7 @@ app_logger = setup_logging()
 
 # ---- Config ----
 BASE_URL = os.getenv("BASE_URL", "http://localhost:2424")
-ROUTE_PREFIX = os.getenv("ROUTE_PREFIX", "/api/bcloud/fileuploader")
+ROUTE_PREFIX = os.getenv("ROUTE_PREFIX", "/api/fileuploader")
 BASE_FOLDER = os.getenv("BASE_FOLDER", "uploads")  # Local storage for static serving
 
 # ---- Security Configuration ----

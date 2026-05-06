@@ -7,7 +7,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ### 1. Upload a File
 
 - **Method**: `POST`
-- **Endpoint**: `/api/bcloud/fileuploader/upload`
+- **Endpoint**: `/api/fileuploader/upload`
 - **Description**: Upload a single file to a specified folder.
 - **Parameters**:
 
@@ -32,7 +32,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ### 2. Upload Multiple Files
 
 - **Method**: `POST`
-- **Endpoint**: `/api/bcloud/fileuploader/upload_multi`
+- **Endpoint**: `/api/fileuploader/upload_multi`
 - **Description**: Upload multiple files to a specified folder in a single request.
 - **Parameters**:
   - `folder` (form-data, required): Target folder name.
@@ -74,7 +74,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ### 3. Upload a File in Chunks
 
 - **Method**: `POST`
-- **Endpoint**: `/api/bcloud/fileuploader/upload_chunk`
+- **Endpoint**: `/api/fileuploader/upload_chunk`
 - **Description**: Upload a file in multiple chunks (useful for large files).
 - **Parameters**:
   - `folder` (form-data, required): Target folder name.
@@ -107,7 +107,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ### 4. Upload Multiple Files in Chunks
 
 - **Method**: `POST`
-- **Endpoint**: `/api/bcloud/fileuploader/upload_multi_chunk`
+- **Endpoint**: `/api/fileuploader/upload_multi_chunk`
 - **Description**: Upload multiple files in chunks (each file is divided into chunks).
 - **Parameters**:
   - `folder` (form-data, required): Target folder name.
@@ -163,7 +163,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ### 6. Retrieve a File (Legacy)
 
 - **Method**: `GET`
-- **Endpoint**: `/api/bcloud/fileuploader/render/<token>`
+- **Endpoint**: `/api/fileuploader/render/<token>`
 - **Description**: **Legacy endpoint** - redirects to new static URL.
 - **Query Parameters**:
   - `token` (string, required): Encrypted file token.
@@ -175,7 +175,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ### 7. Delete a File
 
 - **Method**: `DELETE`
-- **Endpoint**: `/api/bcloud/fileuploader/delete/<token>`
+- **Endpoint**: `/api/fileuploader/delete/<token>`
 - **Description**: Delete a file from both local storage and S3. If the folder is empty afterward, it will also be deleted.
 - **Query Parameters**:
   - `token` (string, required): Encrypted file token.
@@ -234,7 +234,7 @@ The File Uploader API is up and running with static URLs. Below are the availabl
 ```bash
 # App Configuration
 BASE_URL=https://yourdomain.com              # Your domain
-ROUTE_PREFIX=/api/bcloud/fileuploader        # API route prefix
+ROUTE_PREFIX=/api/fileuploader        # API route prefix
 BASE_FOLDER=uploads                          # Local storage folder
 
 # Storage (S3/MinIO)
