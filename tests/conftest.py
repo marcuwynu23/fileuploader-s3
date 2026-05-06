@@ -187,7 +187,7 @@ def invalid_filenames():
 @pytest.fixture
 def allowed_file_extensions():
     """Return list of allowed file extensions."""
-    from src.fileuploader_s3.main import ALLOWED_MIME_TYPES
+    from src.fileuploader_s3.config import ALLOWED_MIME_TYPES
     return list(ALLOWED_MIME_TYPES.keys())
 
 @pytest.fixture
