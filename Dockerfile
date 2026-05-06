@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Builder stage (for dependencies)
 FROM base AS builder
 WORKDIR /app
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir uv==0.4.0 && \
+COPY pyproject.toml README.md ./
+RUN pip install --no-cache-dir uv && \
     uv pip install --system -e .
 
 # Development stage
