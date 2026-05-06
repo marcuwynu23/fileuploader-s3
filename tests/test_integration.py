@@ -20,7 +20,7 @@ class TestGmailCompatibilityIntegration:
             'file': (sample_image_file, 'logo.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             upload_response = client.post(
@@ -63,7 +63,7 @@ class TestGmailCompatibilityIntegration:
             'files': files
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -98,7 +98,7 @@ class TestGmailCompatibilityIntegration:
             'file': (sample_image_file, 'header.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -177,7 +177,7 @@ class TestEndToEndWorkflows:
             'file': (sample_image_file, 'test.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             mock_s3.delete_object.return_value = None
             
@@ -195,7 +195,7 @@ class TestEndToEndWorkflows:
             assert file_response.status_code == 200
             
             # Step 3: Delete file - use the actual token from upload response
-            from src.fileuploader_s3.main import encrypt_key
+            from src.fileuploader_s3.utils import encrypt_key
             token = encrypt_key('workflow_test', 'test.png')
             
             delete_response = client.delete(f'/api/test/fileuploader/delete/{token}')
@@ -226,7 +226,7 @@ class TestEndToEndWorkflows:
             chunk_data = png_data[i:i + chunk_size]
             chunks.append((io.BytesIO(chunk_data), 'large_image.png', 'image/png'))
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             # Upload chunks
@@ -276,7 +276,7 @@ class TestEndToEndWorkflows:
             'files': files
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -352,7 +352,7 @@ class TestBackwardCompatibility:
             'file': (sample_image_file, 'legacy.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             upload_response = client.post(
@@ -364,7 +364,7 @@ class TestBackwardCompatibility:
             assert upload_response.status_code == 200
             
             # Simulate legacy access with token
-            with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+            with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
                 mock_decrypt.return_value = 'legacy_test/legacy.png'
                 
                 legacy_response = client.get('/api/test/fileuploader/render/legacy_token')
@@ -383,7 +383,7 @@ class TestBackwardCompatibility:
             'file': (sample_image_file, 'mixed.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             upload_response = client.post(
@@ -399,7 +399,7 @@ class TestBackwardCompatibility:
             assert new_response.status_code == 200
             
             # Legacy URL should redirect
-            with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+            with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
                 mock_decrypt.return_value = 'mixed_test/mixed.png'
                 
                 legacy_response = client.get('/api/test/fileuploader/render/legacy_token')

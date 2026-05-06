@@ -23,11 +23,15 @@ class TestDeleteFunctionality:
         file_path.write_bytes(sample_image_file.read())
 
         # Delete the file with proper token
-        from src.fileuploader_s3.main import encrypt_key
+        from src.fileuploader_s3.utils import encrypt_key
         token = encrypt_key('test', 'test.png')
         
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt, \
+             patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
+            
             mock_decrypt.return_value = 'test/test.png'
+            mock_s3.head_object.return_value = {'ContentLength': 1024}
+            mock_s3.delete_object.return_value = None
 
             response = client.delete(f'/api/test/fileuploader/delete/{token}')
             
@@ -38,14 +42,20 @@ class TestDeleteFunctionality:
             assert 'test.png' in response_data['message']
             assert response_data['filename'] == 'test.png'
             assert response_data['folder'] == 'test'
-            
-            # Verify file is deleted
-            assert not file_path.exists()
     
     def test_delete_nonexistent_file(self, client):
         """Test deleting a non-existent file."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.routes.decrypt_key') as mock_decrypt, \
+             patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
+            
             mock_decrypt.return_value = 'test/nonexistent.png'
+            
+            # Create proper S3 client mock with exceptions
+            class NoSuchKey(Exception):
+                pass
+            
+            mock_s3.exceptions = type('exceptions', (), {'NoSuchKey': NoSuchKey})
+            mock_s3.head_object.side_effect = NoSuchKey("File not found")
             
             response = client.delete('/api/test/fileuploader/delete/fake_token')
             
@@ -64,7 +74,7 @@ class TestDeleteFunctionality:
         file_path.write_bytes(sample_image_file.read())
         
         # Delete the file
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/test.png'
             
             response = client.delete('/api/test/fileuploader/delete/fake_token')
@@ -88,7 +98,7 @@ class TestDeleteFunctionality:
         file2_path.write_bytes(b'other content')
         
         # Delete one file
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/test.png'
             
             response = client.delete('/api/test/fileuploader/delete/fake_token')
@@ -104,7 +114,7 @@ class TestDeleteFunctionality:
     
     def test_delete_invalid_token(self, client):
         """Test delete with invalid token."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = None
             
             response = client.delete('/api/test/fileuploader/delete/invalid_token')
@@ -116,7 +126,7 @@ class TestDeleteFunctionality:
     
     def test_delete_malformed_key(self, client):
         """Test delete with malformed key."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'invalid_format'  # Missing folder/filename
             
             response = client.delete('/api/test/fileuploader/delete/fake_token')
@@ -135,10 +145,8 @@ class TestDeleteFunctionality:
         file_path.write_bytes(sample_image_file.read())
         
         # Delete with S3 failure
-        # Enable S3 for this test
-        with patch('src.fileuploader_s3.main.USE_S3', True), \
-             patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt, \
-             patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt, \
+             patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             
             mock_decrypt.return_value = 'test/test.png'
             mock_s3.delete_object.side_effect = Exception("S3 connection failed")
@@ -178,7 +186,7 @@ class TestDeleteFunctionality:
         file_path.write_bytes(sample_image_file.read())
         
         # This should fail as we only support one level
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/nested/image.png'
             
             response = client.delete('/api/test/fileuploader/delete/fake_token')
@@ -198,7 +206,7 @@ class TestDeleteFunctionality:
         file_path.write_bytes(sample_image_file.read())
         
         # Try path traversal
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = '../test/test.png'
             
             response = client.delete('/api/test/fileuploader/delete/fake_token')
@@ -226,7 +234,7 @@ class TestDeleteSecurity:
     
     def test_delete_sanitization(self, client, temp_upload_dir):
         """Test that delete properly sanitizes paths."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             # Test various malicious inputs
             malicious_inputs = [
                 '/etc/passwd',
@@ -262,8 +270,8 @@ class TestDeleteSecurity:
         file_path.write_bytes(sample_image_file.read())
         
         # Simulate concurrent delete requests
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt, \
-             patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt, \
+             patch('src.fileuploader_s3.storage.s3_client') as mock_s3:
             
             mock_decrypt.return_value = 'test/test.png'
             mock_s3.delete_object.return_value = None

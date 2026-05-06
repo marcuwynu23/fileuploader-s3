@@ -187,7 +187,7 @@ class TestLegacyRenderEndpoint:
         file_path.write_bytes(sample_image_file.read())
 
         # Create a valid token (this would normally be encrypted)
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/test.png'
 
             response = client.get('/api/test/fileuploader/render/fake_token')
@@ -198,7 +198,7 @@ class TestLegacyRenderEndpoint:
     
     def test_legacy_invalid_token(self, client):
         """Test legacy endpoint with invalid token."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = None
             
             response = client.get('/api/test/fileuploader/render/invalid_token')
@@ -210,7 +210,7 @@ class TestLegacyRenderEndpoint:
     
     def test_legacy_malformed_key(self, client):
         """Test legacy endpoint with malformed key."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'invalid_format'  # Missing folder/filename
             
             response = client.get('/api/test/fileuploader/render/fake_token')
@@ -221,7 +221,7 @@ class TestLegacyRenderEndpoint:
     
     def test_legacy_file_not_found(self, client):
         """Test legacy endpoint when file doesn't exist."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/nonexistent.png'
             
             response = client.get('/api/test/fileuploader/render/fake_token')

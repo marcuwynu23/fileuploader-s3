@@ -4,12 +4,15 @@ Test cases for security helper functions.
 
 import pytest
 from pathlib import Path
-from src.fileuploader_s3.main import (
-    ALLOWED_MIME_TYPES, MAX_FILE_SIZE, BLOCKED_PATTERNS,
+from src.fileuploader_s3.config import (
+    ALLOWED_MIME_TYPES, MAX_FILE_SIZE, BLOCKED_PATTERNS
+)
+from src.fileuploader_s3.security import (
     validate_folder_name, validate_filename,
     get_safe_file_path, get_mime_type, is_allowed_file_type,
-    generate_public_url, sanitize_filename
+    sanitize_filename
 )
+from src.fileuploader_s3.utils import generate_public_url
 
 
 class TestSecurityConfig:

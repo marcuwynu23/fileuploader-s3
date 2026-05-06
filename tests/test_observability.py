@@ -120,7 +120,7 @@ class TestObservability:
         assert serve_response.status_code == 200
         
         # Delete file
-        from src.fileuploader_s3.main import encrypt_key
+        from src.fileuploader_s3.utils import encrypt_key
         token = encrypt_key('observability_integration_test', 'test.png')
         delete_response = client.delete(f'/api/test/fileuploader/delete/{token}')
         assert delete_response.status_code == 200
