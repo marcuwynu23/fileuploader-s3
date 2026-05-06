@@ -4,6 +4,7 @@ Integration tests for Gmail compatibility and end-to-end workflows.
 
 import json
 import pytest
+import io
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,7 +20,7 @@ class TestGmailCompatibilityIntegration:
             'file': (sample_image_file, 'logo.png', 'image/png')
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             upload_response = client.post(
@@ -62,7 +63,7 @@ class TestGmailCompatibilityIntegration:
             'files': files
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -97,7 +98,7 @@ class TestGmailCompatibilityIntegration:
             'file': (sample_image_file, 'header.png', 'image/png')
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -176,7 +177,7 @@ class TestEndToEndWorkflows:
             'file': (sample_image_file, 'test.png', 'image/png')
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             mock_s3.delete_object.return_value = None
             
@@ -193,16 +194,19 @@ class TestEndToEndWorkflows:
             file_response = client.get('/uploads/workflow_test/test.png')
             assert file_response.status_code == 200
             
-            # Step 3: Delete file
-            with patch('fileuploader_s3.main.decrypt_key') as mock_decrypt:
-                mock_decrypt.return_value = 'workflow_test/test.png'
-                
-                delete_response = client.delete('/api/test/fileuploader/delete/fake_token')
-                assert delete_response.status_code == 200
-                
-                # Step 4: Verify file is gone
-                file_response_after = client.get('/uploads/workflow_test/test.png')
-                assert file_response_after.status_code == 404
+            # Step 3: Delete file - use the actual token from upload response
+            from src.fileuploader_s3.main import encrypt_key
+            token = encrypt_key('workflow_test', 'test.png')
+            
+            # Reset file pointer to ensure it's closed
+            sample_image_file.seek(0)
+            
+            delete_response = client.delete(f'/api/test/fileuploader/delete/{token}')
+            assert delete_response.status_code == 200
+            
+            # Step 4: Verify file is gone
+            file_response_after = client.get('/uploads/workflow_test/test.png')
+            assert file_response_after.status_code == 404
     
     def test_chunk_upload_complete_workflow(self, client, temp_upload_dir, sample_image_file):
         """Test complete chunk upload workflow."""
@@ -211,12 +215,12 @@ class TestEndToEndWorkflows:
         
         # Simulate chunk upload
         chunks = [
-            (b'chunk1_data', filename, 'image/png'),
-            (b'chunk2_data', filename, 'image/png'),
-            (b'chunk3_data', filename, 'image/png')
+            (io.BytesIO(b'chunk1_data'), 'large_image.png', 'image/png'),
+            (io.BytesIO(b'chunk2_data'), 'large_image.png', 'image/png'),
+            (io.BytesIO(b'chunk3_data'), 'large_image.png', 'image/png')
         ]
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             # Upload chunks
@@ -263,7 +267,7 @@ class TestEndToEndWorkflows:
             'files': files
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -339,7 +343,7 @@ class TestBackwardCompatibility:
             'file': (sample_image_file, 'legacy.png', 'image/png')
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             upload_response = client.post(
@@ -370,7 +374,7 @@ class TestBackwardCompatibility:
             'file': (sample_image_file, 'mixed.png', 'image/png')
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             upload_response = client.post(

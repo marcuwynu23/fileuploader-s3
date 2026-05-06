@@ -135,7 +135,7 @@ class TestStaticFileServing:
         # Request with range header
         response = client.get('/uploads/test/test.png', headers={'Range': 'bytes=0-10'})
         
-        assert response.status_code == 200  # Flask handles ranges automatically
+        assert response.status_code == 206  # Range request should return 206
         assert 'Accept-Ranges' in response.headers
         assert response.headers['Accept-Ranges'] == 'bytes'
     
@@ -187,7 +187,7 @@ class TestLegacyRenderEndpoint:
         file_path.write_bytes(sample_image_file.read())
 
         # Create a valid token (this would normally be encrypted)
-        with patch('fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/test.png'
 
             response = client.get('/api/test/fileuploader/render/fake_token')
@@ -198,7 +198,7 @@ class TestLegacyRenderEndpoint:
     
     def test_legacy_invalid_token(self, client):
         """Test legacy endpoint with invalid token."""
-        with patch('fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = None
             
             response = client.get('/api/test/fileuploader/render/invalid_token')

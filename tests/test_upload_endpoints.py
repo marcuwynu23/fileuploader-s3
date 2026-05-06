@@ -20,7 +20,7 @@ class TestSingleUpload:
             'file': (sample_image_file, 'test.png', 'image/png')
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -162,7 +162,9 @@ class TestSingleUpload:
             'file': (sample_image_file, 'test.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        # Enable S3 for this test
+        with patch('src.fileuploader_s3.main.USE_S3', True), \
+             patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.side_effect = Exception("S3 connection failed")
             
             response = client.post(
@@ -189,7 +191,7 @@ class TestMultipleUpload:
             ]
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -235,26 +237,23 @@ class TestMultipleUpload:
             'folder': 'test',
             'files': [
                 (sample_image_file, 'image.png', 'image/png'),  # Valid
-                (b'MZ\x90\x00', 'malware.exe', 'application/x-executable'),  # Invalid
-                (b'fake content', '../malicious.png', 'image/png')  # Invalid filename
+                (io.BytesIO(b'MZ\x90\x00'), 'malware.exe', 'application/x-executable'),  # Invalid
+                (io.BytesIO(b'fake content'), '../malicious.png', 'image/png')  # Invalid filename
             ]
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
-            mock_s3.upload_fileobj.return_value = None
-            
-            response = client.post(
-                '/api/test/fileuploader/upload_multi',
-                data=data,
-                content_type='multipart/form-data'
-            )
-            
-            assert response.status_code == 200
-            
-            response_data = json.loads(response.data)
-            assert response_data['total_uploaded'] == 1
-            assert 'errors' in response_data
-            assert response_data['total_errors'] == 2
+        response = client.post(
+            '/api/test/fileuploader/upload_multi',
+            data=data,
+            content_type='multipart/form-data'
+        )
+        
+        assert response.status_code == 200
+        
+        response_data = json.loads(response.data)
+        assert response_data['total_uploaded'] == 1
+        assert 'errors' in response_data
+        assert response_data['total_errors'] == 2
 
 
 class TestChunkUpload:
@@ -269,7 +268,7 @@ class TestChunkUpload:
             'dztotalchunkcount': '1'
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -322,7 +321,7 @@ class TestChunkUpload:
         (temp_dir / 'image.png.part0').write_bytes(b'chunk1')
         (temp_dir / 'image.png.part1').write_bytes(b'chunk2')
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -397,7 +396,7 @@ class TestMultipleChunkUpload:
             'dztotalchunkcount': '1'
         }
         
-        with patch('fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(

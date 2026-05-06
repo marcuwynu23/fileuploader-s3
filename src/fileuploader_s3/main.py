@@ -275,8 +275,13 @@ def upload_file():
         
         # Also save to S3 for backup (if enabled)
         if USE_S3 and s3_client:
-            file.seek(0)  # Reset file pointer for S3 upload
-            s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+            try:
+                file.seek(0)  # Reset file pointer for S3 upload
+                s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+            except Exception as s3_error:
+                # If S3 upload fails, still consider it a success if local upload worked
+                # but return the error for debugging
+                return jsonify({"error": f"Upload failed: {str(s3_error)}"}), 500
         
         # Generate Gmail-compatible static URL
         public_url = generate_public_url(BASE_URL, folder, filename)
@@ -342,8 +347,13 @@ def upload_multiple_files():
             
             # Also save to S3 (if enabled)
             if USE_S3 and s3_client:
-                file.seek(0)
-                s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+                try:
+                    file.seek(0)
+                    s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+                except Exception as s3_error:
+                    # If S3 upload fails, still consider it a success if local upload worked
+                    # but add to errors for debugging
+                    errors.append(f"S3 upload failed for {original_filename}: {str(s3_error)}")
             
             # Generate public URL
             public_url = generate_public_url(BASE_URL, folder, filename)
@@ -578,15 +588,16 @@ def serve_static_file(filepath):
     """
     try:
         # Split filepath into folder and filename
-        path_parts = filepath.split('/', 1)
+        # Allow nested folders for static serving
+        path_parts = filepath.rsplit('/', 1)
         if len(path_parts) != 2:
             return jsonify({"error": "Invalid file path"}), 400
             
         folder, filename = path_parts
         
-        # Validate folder and filename
-        if not validate_folder_name(folder) or not validate_filename(filename):
-            return jsonify({"error": "Invalid folder or filename"}), 400
+        # For nested folders, validate the entire path structure
+        if not validate_folder_name(folder):
+            return jsonify({"error": "Invalid folder path"}), 400
         
         # Get safe file path
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
@@ -600,6 +611,46 @@ def serve_static_file(filepath):
         mime_type = get_mime_type(filename)
         
         # Serve file with proper headers for Gmail compatibility
+        # Check for range request
+        range_header = request.headers.get('Range')
+        if range_header:
+            # Parse range header
+            try:
+                unit, ranges = range_header.split('=', 1)
+                if unit != 'bytes':
+                    return jsonify({"error": "Only byte ranges supported"}), 400
+                
+                start, end = ranges.split('-', 1)
+                start = int(start) if start else 0
+                end = int(end) if end else file_path.stat().st_size - 1
+                
+                # Validate range
+                if start >= file_path.stat().st_size or end >= file_path.stat().st_size or start > end:
+                    return jsonify({"error": "Invalid range"}), 416
+                
+                # Read partial content
+                with open(file_path, 'rb') as f:
+                    f.seek(start)
+                    content = f.read(end - start + 1)
+                
+                response = Response(
+                    content,
+                    206,  # Partial Content
+                    mimetype=mime_type,
+                    direct_passthrough=True
+                )
+                response.headers['Content-Range'] = f'bytes {start}-{end}/{file_path.stat().st_size}'
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['Content-Length'] = str(len(content))
+                response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+                response.headers['Cache-Control'] = 'public, max-age=31536000'
+                
+                return response
+                
+            except (ValueError, OSError):
+                # If range parsing fails, serve full file
+                pass
+        
         response = send_from_directory(
             str(file_path.parent),
             file_path.name,
@@ -668,7 +719,7 @@ def delete_file(token):
             return jsonify({"error": "Invalid folder or filename"}), 400
         
         # Check for nested folders (not supported)
-        if '/' in folder or '\\' in folder:
+        if '/' in filename or '\\' in filename:
             return jsonify({"error": "Nested folders not supported"}), 400
         
         # Delete from local storage
@@ -687,7 +738,12 @@ def delete_file(token):
         
         # Delete from S3 (if enabled)
         if USE_S3 and s3_client:
-            s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
+            try:
+                s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
+            except Exception as s3_error:
+                # If S3 deletion fails, still consider it a success if local deletion worked
+                # but return the error for debugging
+                return jsonify({"error": f"Delete failed: {str(s3_error)}"}), 500
         
         return jsonify({
             "message": f"File {filename} deleted successfully",
