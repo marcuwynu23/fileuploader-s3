@@ -113,9 +113,13 @@ def setup_logging():
         log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     
     # Configure root logger
-    handlers = [
-        logging.StreamHandler(),  # Console output
-    ]
+    handlers = []
+    
+    # Console handler - disable ANSI colors for cleaner logs
+    console_handler = logging.StreamHandler()
+    console_formatter = logging.Formatter(log_format)
+    console_handler.setFormatter(console_formatter)
+    handlers.append(console_handler)
     
     # File handler - use JSON format for Loki if enabled
     if USE_LOKI:
@@ -123,13 +127,20 @@ def setup_logging():
         file_handler.setFormatter(logging.Formatter('%(message)s'))
         handlers.append(file_handler)
     else:
-        handlers.append(logging.FileHandler('fileuploader.log', encoding='utf-8'))
+        file_handler = logging.FileHandler('fileuploader.log', encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter(log_format))
+        handlers.append(file_handler)
     
+    # Configure root logger
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
-        format=log_format,
-        handlers=handlers
+        handlers=handlers,
+        force=True  # Force reconfiguration
     )
+    
+    # Suppress Werkzeug development server logs unless in debug mode
+    if log_level != 'DEBUG':
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
     
     # Create structured logger for the application
     return StructuredLogger(__name__)
@@ -1037,7 +1048,9 @@ app.register_blueprint(file_uploader, url_prefix=ROUTE_PREFIX)
 
 
 def main():
-    app.run(host="0.0.0.0", port=2424, debug=True)
+    # Only run in debug mode if explicitly requested
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    app.run(host="0.0.0.0", port=2424, debug=debug_mode)
 
 
 if __name__ == "__main__":
