@@ -1,7 +1,42 @@
+<div align="center">
+
 # Bucket Storage File Uploader API
 
-This service provides a secure file uploader backed by **S3-compatible storage** (MinIO, AWS S3, etc.).  
-Uploaded files are accessible through **static URLs** for direct file access.
+![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Version](https://img.shields.io/badge/version-0.1.0-orange.svg) ![Flask](https://img.shields.io/badge/Flask-3.1.2-000000?style=flat&logo=flask) ![S3 Compatible](https://img.shields.io/badge/S3-Compatible-FF9900?style=flat&logo=amazonaws)
+
+</div>
+
+This service provides a secure, modern file uploader backed by **S3-compatible storage** (MinIO, AWS S3, Cloudflare R2, etc.).  
+Uploaded files are accessible through clean, static URLs optimized for Gmail and email clients.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Supported File Types](#supported-file-types)
+- [Security Features](#security-features)
+- [Backward Compatibility](#backward-compatibility)
+- [Production Deployment](#production-deployment)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Features
+
+- **Security First**: Path traversal protection, magic number validation, and encrypted tokens
+- **S3/MinIO Compatible**: Works with any S3-compatible storage backend
+- **Multiple Upload Methods**: Single file, multi-file, and chunked uploads for large files
+- **Static URLs**: Direct file access with Gmail-compatible URLs
+- **Observability**: Prometheus metrics and structured logging
+- **Performance**: Optimized caching, presigned URLs for large files, and rate limiting
+- **Delete Functionality**: Secure file deletion with encrypted tokens
+- **Legacy Support**: Backward compatibility with old token-based render endpoints
+- **Docker Ready**: Docker and Docker Compose support out of the box
 
 ---
 
@@ -13,7 +48,7 @@ Uploaded files are accessible through **static URLs** for direct file access.
 
 ---
 
-## Setup
+## Quick Start
 
 ### 1. Install UV
 
@@ -37,8 +72,6 @@ Verify installation:
 uv --version
 ```
 
----
-
 ### 2. Clone and install dependencies
 
 ```sh
@@ -46,8 +79,6 @@ git clone https://github.com/marcuwynu23/fileuploader-s3.git
 cd fileuploader-s3
 uv sync
 ```
-
----
 
 ### 3. Generate an encryption key
 
@@ -62,8 +93,6 @@ Example output:
 ```
 GxA5FFbcS-N3SBFzy5ZKdATSZ6JGkQktC7ZS1wGKqv4=
 ```
-
----
 
 ### 4. Configure `.env`
 
@@ -85,8 +114,6 @@ STORAGE_SECRET_KEY=your_secret_key           # your MinIO/S3 secret key
 STORAGE_BUCKET=your-bucket-name              # target bucket
 ```
 
----
-
 ### 5. Run app
 
 ```sh
@@ -99,7 +126,7 @@ The app will be available at:
 http://localhost:2424/
 ```
 
-You can also check **API guide** here:
+You can also check the API guide here:
 
 ```
 http://localhost:2424/api/bcloud/fileuploader
@@ -133,8 +160,6 @@ POST /api/bcloud/fileuploader/upload
 }
 ```
 
----
-
 ### Direct file access
 
 ```http
@@ -150,8 +175,6 @@ https://yourdomain.com/uploads/test/logo.png
 - Serves files directly with proper MIME types
 - Clean URLs without query strings
 - Optimized caching headers
-
----
 
 ### Email Integration Example
 
@@ -207,6 +230,7 @@ GET /api/bcloud/fileuploader/render/<token>
 ```
 
 Returns HTTP 301 redirect to:
+
 ```
 https://yourdomain.com/uploads/folder/filename.ext
 ```
@@ -266,49 +290,11 @@ uv add waitress
 uv run waitress-serve --host=0.0.0.0 --port=2424 --call fileuploader_s3.main:app
 ```
 
-## Testing
-
-### Install Test Dependencies
-
-```bash
-pip install -r tests/requirements.txt
-```
-
-### Run Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test files
-pytest tests/test_upload_endpoints.py -v
-pytest tests/test_static_serving.py -v
-
-# Run with coverage
-pytest --cov=src/fileuploader_s3 --cov-report=html
-```
-
-### Migration from Old URLs
-
-**Before**:
-```
-https://domain.com/api/bcloud/fileuploader/render?filename=logo.png&folder=test
-```
-
-**After**:
-```
-https://domain.com/uploads/test/logo.png
-```
-
 ---
 
-## Notes
+## Contributing
 
-- `ENCRYPTION_KEY` must be stable across deployments for legacy endpoint compatibility
-- New static URLs don't require encryption tokens
-- Files are stored locally for static serving + S3 for backup
-- Large files are supported with chunked uploads
-- All endpoints include comprehensive error handling and validation
+For development guidelines, coding conventions, and contribution processes, please see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ---
 
@@ -319,3 +305,9 @@ https://domain.com/uploads/test/logo.png
 - **cryptography.Fernet** (AES-128 encryption for legacy tokens)
 - **boto3** (S3/MinIO client)
 - **Waitress** (production WSGI server)
+
+---
+
+## License
+
+MIT License
