@@ -12,7 +12,7 @@ def initialize_s3_client(boto3, Config):
     """Initialize S3 client and ensure bucket exists."""
     global s3_client
     
-    print("🔍 Initializing S3 client...")
+    print("Initializing S3 client...")
     try:
         # S3/MinIO client for cloud storage (mandatory)
         s3_client = boto3.client(
@@ -27,14 +27,14 @@ def initialize_s3_client(boto3, Config):
         # Ensure S3 bucket exists
         try:
             s3_client.head_bucket(Bucket=STORAGE_BUCKET)
-            print(f"✓ S3 bucket '{STORAGE_BUCKET}' is accessible at {STORAGE_ENDPOINT}")
+            print(f"S3 bucket '{STORAGE_BUCKET}' is accessible at {STORAGE_ENDPOINT}")
         except:
             s3_client.create_bucket(Bucket=STORAGE_BUCKET)
-            print(f"✓ Created S3 bucket '{STORAGE_BUCKET}' at {STORAGE_ENDPOINT}")
+            print(f"Created S3 bucket '{STORAGE_BUCKET}' at {STORAGE_ENDPOINT}")
             
     except Exception as s3_init_error:
-        print(f"❌ Failed to initialize S3 client: {s3_init_error}")
-        print(f"❌ ERROR: This application requires S3 storage to function")
+        print(f"Failed to initialize S3 client: {s3_init_error}")
+        print(f"ERROR: This application requires S3 storage to function")
         print(f"   Please check your S3 configuration:")
         print(f"   - STORAGE_ENDPOINT: {STORAGE_ENDPOINT}")
         print(f"   - STORAGE_ACCESS_KEY: {STORAGE_ACCESS_KEY}")
@@ -57,7 +57,17 @@ def upload_file_to_s3(file_content: bytes, folder: str, filename: str, app_logge
         s3_client.upload_fileobj(file_obj, STORAGE_BUCKET, s3_key)
         app_logger.info("File successfully uploaded to S3", 
                      folder=folder, filename=filename, 
-                     file_size=len(file_content), backend='s3')
+                     file_size=len(file_content), backend='s3', bucket=STORAGE_BUCKET, s3_key=s3_key)
+        
+        # Verify object exists
+        try:
+            s3_client.head_object(Bucket=STORAGE_BUCKET, Key=s3_key)
+            app_logger.info("Verified object exists in S3", 
+                         bucket=STORAGE_BUCKET, s3_key=s3_key)
+        except Exception as verify_error:
+            app_logger.warning("Failed to verify object in S3", 
+                            error=str(verify_error), bucket=STORAGE_BUCKET, s3_key=s3_key)
+        
         return True, None
     except Exception as s3_error:
         error_msg = f"Upload failed: {str(s3_error)}"

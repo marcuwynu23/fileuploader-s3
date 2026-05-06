@@ -5,44 +5,68 @@ import time
 import traceback
 from flask import Blueprint, request, jsonify, Response, redirect
 from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from .config import (
     BASE_URL, MAX_FILE_SIZE, MAX_CHUNK_SIZE, 
     USE_PROMETHEUS, USE_LOKI
 )
 from .security import (
     validate_folder_name, validate_filename, is_allowed_file_type,
-    sanitize_filename, validate_file_content, get_mime_type, decrypt_key
+    sanitize_filename, validate_file_content, get_mime_type
 )
+from .utils import decrypt_key
 from .storage import (
     upload_file_to_s3, serve_file_from_s3, delete_file_from_s3,
     upload_chunk_to_s3, combine_chunks_from_s3, get_s3_client
 )
 
+# Create limiter instance
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
 file_uploader = Blueprint("file_uploader", __name__)
 
 
+# Helper functions for routes
+def get_app_logger():
+    """Get the application logger instance."""
+    from .logging_config import setup_logging
+    return setup_logging()
+
+
+# Global variable to store prometheus metrics once initialized
+_prometheus_metrics = None
+
 def get_prometheus_metrics():
     """Get prometheus metrics if available."""
-    prometheus_metrics = None
+    global _prometheus_metrics
+    if _prometheus_metrics is not None:
+        return _prometheus_metrics
+        
     try:
-        from prometheus_client import Counter, Histogram, Gauge
-        prometheus_metrics = {
-            'upload_requests_total': Counter('fileuploader_uploads_total', 'Total upload requests', ['method', 'status']),
-            'upload_duration_seconds': Histogram('fileuploader_upload_duration_seconds', 'Upload duration in seconds'),
-            'delete_requests_total': Counter('fileuploader_deletes_total', 'Total delete requests', ['method', 'status']),
-            'file_serve_requests_total': Counter('fileuploader_serves_total', 'Total file serve requests', ['status']),
-            'file_size_bytes': Histogram('fileuploader_file_size_bytes', 'Uploaded file size in bytes', ['file_type']),
-            'active_uploads': Gauge('fileuploader_active_uploads', 'Number of active uploads'),
-            'storage_used_bytes': Gauge('fileuploader_storage_used_bytes', 'Storage used in bytes'),
+        from prometheus_client import Counter, Histogram, Gauge, CollectorRegistry
+        registry = CollectorRegistry(auto_describe=True)
+        
+        _prometheus_metrics = {
+            'upload_requests_total': Counter('fileuploader_uploads_total', 'Total upload requests', ['method', 'status'], registry=registry),
+            'upload_duration_seconds': Histogram('fileuploader_upload_duration_seconds', 'Upload duration in seconds', registry=registry),
+            'delete_requests_total': Counter('fileuploader_deletes_total', 'Total delete requests', ['method', 'status'], registry=registry),
+            'file_serve_requests_total': Counter('fileuploader_serves_total', 'Total file serve requests', ['status'], registry=registry),
+            'file_size_bytes': Histogram('fileuploader_file_size_bytes', 'Uploaded file size in bytes', ['file_type'], registry=registry),
+            'active_uploads': Gauge('fileuploader_active_uploads', 'Number of active uploads', registry=registry),
+            'storage_used_bytes': Gauge('fileuploader_storage_used_bytes', 'Storage used in bytes', registry=registry),
+            'registry': registry
         }
     except ImportError:
         pass
-    return prometheus_metrics
+    return _prometheus_metrics
 
 
 # ---- Upload Single ----
 @file_uploader.route("/upload", methods=["POST"])
-@Limiter.limit("10 per minute")
+@limiter.limit(limit_value="10 per minute")
 def upload_file():
     """Upload a single file and return Gmail-compatible static URL."""
     app_logger = get_app_logger()
@@ -72,7 +96,8 @@ def upload_file():
     if not is_allowed_file_type(original_filename):
         if prometheus_metrics:
             prometheus_metrics['upload_requests_total'].labels(method='POST', status='400').inc()
-        return jsonify({"error": f"File type not allowed. Allowed types: {list(get_allowed_mime_types().keys())}"}), 400
+        from .config import ALLOWED_MIME_TYPES
+        return jsonify({"error": f"File type not allowed. Allowed types: {list(ALLOWED_MIME_TYPES.keys())}"}), 400
 
     filename = sanitize_filename(original_filename)
     file_type = os.path.splitext(filename)[1].lower()
@@ -159,7 +184,7 @@ def upload_file():
 
 # ---- Upload Multiple ----
 @file_uploader.route("/upload_multi", methods=["POST"])
-@Limiter.limit("20 per minute")
+@limiter.limit(limit_value="20 per minute")
 def upload_multiple_files():
     """Upload multiple files and return Gmail-compatible static URLs."""
     app_logger = get_app_logger()
@@ -227,9 +252,9 @@ def upload_multiple_files():
     
     if uploaded:
         response_data = {
-            "message": f"{len(uploaded_files)} file(s) uploaded successfully.",
-            "files": uploaded_files,
-            "total_uploaded": len(uploaded_files)
+            "message": f"{len(uploaded)} file(s) uploaded successfully.",
+            "files": uploaded,
+            "total_uploaded": len(uploaded)
         }
     else:
         response_data = {"message": "No files uploaded successfully."}
@@ -242,7 +267,7 @@ def upload_multiple_files():
 
 # ---- Upload Chunk ----
 @file_uploader.route("/upload_chunk", methods=["POST"])
-@Limiter.limit("20 per minute")
+@limiter.limit(limit_value="20 per minute")
 def upload_chunk():
     """Upload a file in chunks and return Gmail-compatible static URL."""
     app_logger = get_app_logger()
@@ -329,9 +354,7 @@ def upload_chunk():
         return jsonify({"error": f"Chunk upload failed: {str(e)}"}), 500
 
 
-# ---- Static File Serving (S3) ----
-@file_uploader.route("/uploads/<path:filepath>", methods=["GET"])
-@Limiter.limit("100 per minute")
+# ---- Static File Serving (S3) - will be registered directly on app ----
 def serve_static_file(filepath):
     """Serve files directly from S3 storage with proper MIME types.
     
@@ -451,7 +474,7 @@ def serve_static_file(filepath):
 
 # ---- Legacy Render Endpoint ----
 @file_uploader.route("/render/<token>", methods=["GET"])
-@Limiter.limit("20 per minute")
+@limiter.limit(limit_value="20 per minute")
 def render_file(token):
     """Returns redirect to new static URL."""
     app_logger = get_app_logger()
@@ -482,7 +505,7 @@ def render_file(token):
 
 # ---- Delete Endpoint ----
 @file_uploader.route("/delete/<token>", methods=["DELETE"])
-@Limiter.limit("50 per minute")
+@limiter.limit(limit_value="20 per minute")
 def delete_file(token):
     """Delete a file from S3 storage."""
     app_logger = get_app_logger()
@@ -554,13 +577,6 @@ def delete_file(token):
         if prometheus_metrics:
             prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='500').inc()
         return jsonify({"error": f"Delete failed: {str(e)}"}), 500
-
-
-# Helper functions for routes
-def get_app_logger():
-    """Get the application logger instance."""
-    from .logging_config import setup_logging
-    return setup_logging()
 
 
 def get_allowed_mime_types():

@@ -1,7 +1,6 @@
 """Main application module for fileuploader-s3."""
 
-import markdown
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -9,7 +8,9 @@ from dotenv import load_dotenv
 from .config import BASE_URL, ROUTE_PREFIX, FLASK_DEBUG, TESTING
 from .logging_config import setup_logging
 from .storage import initialize_s3_client
-from .routes import file_uploader
+from .routes import file_uploader, serve_static_file
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Load environment variables
 load_dotenv()
@@ -24,19 +25,7 @@ except ImportError:
     print("To install magic on Windows: pip install python-magic-bin")
 
 # Prometheus metrics (always initialize but only use if enabled)
-try:
-    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
-    prometheus_metrics = {
-        'upload_requests_total': Counter('fileuploader_uploads_total', 'Total upload requests', ['method', 'status']),
-        'upload_duration_seconds': Histogram('fileuploader_upload_duration_seconds', 'Upload duration in seconds'),
-        'delete_requests_total': Counter('fileuploader_deletes_total', 'Total delete requests', ['method', 'status']),
-        'file_serve_requests_total': Counter('fileuploader_serves_total', 'Total file serve requests', ['status']),
-        'file_size_bytes': Histogram('fileuploader_file_size_bytes', 'Uploaded file size in bytes', ['file_type']),
-        'active_uploads': Gauge('fileuploader_active_uploads', 'Number of active uploads'),
-        'storage_used_bytes': Gauge('fileuploader_storage_used_bytes', 'Storage used in bytes'),
-    }
-except ImportError:
-    print("Warning: Prometheus client not available. Install with: pip install prometheus-client")
+prometheus_metrics = None
 
 # S3/MinIO support (mandatory for this application)
 boto3 = None
@@ -45,8 +34,8 @@ try:
     import boto3
     from botocore.client import Config
 except ImportError as e:
-    print(f"❌ ERROR: S3 dependencies not available: {e}")
-    print("❌ ERROR: This application requires S3 storage. Please install boto3:")
+    print(f"ERROR: S3 dependencies not available: {e}")
+    print("ERROR: This application requires S3 storage. Please install boto3:")
     print("   pip install boto3")
     exit(1)
 
@@ -61,7 +50,7 @@ def add_security_headers(response):
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; object-src 'self';"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self';"
     return response
 
 # ---- Initial Setup ----
@@ -73,36 +62,63 @@ initialize_s3_client(boto3, Config)
 # ---- Home Page ----
 @app.route("/")
 def initial_render():
-    """Render home page with documentation."""
-    with open("docs/documentation.md", "r", encoding="utf-8") as f:
-        markdown_content = f.read()
-    markdown_content = markdown_content.replace("{base}", BASE_URL)
-    html_content = markdown.markdown(markdown_content)
-    return render_template_string(
-        """
+    """Render beautiful home page."""
+    try:
+        with open("templates/index.html", "r", encoding="utf-8") as f:
+            template_content = f.read()
+        # Replace base URL in template
+        template_content = template_content.replace("{base_url}", BASE_URL)
+        return template_content
+    except FileNotFoundError:
+        # Fallback to simple page if template not found
+        return """
         <!DOCTYPE html>
         <html>
         <head>
-            <meta charset="utf-8">
-            <title>Uploader API</title>
+            <title>File Uploader S3 API</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                h1 { color: #333; }
+                .endpoint { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                code { background: #e9ecef; padding: 2px 4px; border-radius: 3px; }
+            </style>
         </head>
         <body>
-            {}
+            <div class="container">
+                <h1>File Uploader S3 API</h1>
+                <p>Modern file storage service with S3 backend.</p>
+                <div class="endpoint">
+                    <strong>API Base:</strong> <code>{base_url}/api/fileuploader</code>
+                </div>
+                <div class="endpoint">
+                    <strong>Health Check:</strong> <code>{base_url}/health</code>
+                </div>
+                <div class="endpoint">
+                    <strong>Documentation:</strong> <a href="/docs">View API Docs</a>
+                </div>
+            </div>
         </body>
         </html>
-        """.format(html_content)
-    )
+        """.replace("{base_url}", BASE_URL)
 
 # ---- Prometheus Metrics Endpoint ----
 @app.route("/metrics")
 def metrics():
     """Prometheus metrics endpoint - only available when enabled."""
-    if not prometheus_metrics:
+    from .routes import get_prometheus_metrics
+    metrics_data = get_prometheus_metrics()
+    
+    if not metrics_data:
         return jsonify({"error": "Prometheus metrics disabled"}), 404
     
     try:
         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+        registry = metrics_data.get('registry')
+        if registry:
+            return Response(generate_latest(registry), mimetype=CONTENT_TYPE_LATEST)
+        else:
+            return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
     except ImportError:
         return jsonify({"error": "Prometheus client not installed"}), 503
     except Exception as e:
@@ -128,6 +144,19 @@ def health_check():
         }
     }
     return jsonify(health_status)
+
+# Create limiter instance for static file route
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+limiter.init_app(app)
+
+# Register static file route directly on app (not on blueprint)
+@app.route("/uploads/<path:filepath>", methods=["GET"])
+@limiter.limit(limit_value="100 per minute")
+def serve_static_file_route(filepath):
+    return serve_static_file(filepath)
 
 # Register blueprint
 app.register_blueprint(file_uploader, url_prefix=ROUTE_PREFIX)

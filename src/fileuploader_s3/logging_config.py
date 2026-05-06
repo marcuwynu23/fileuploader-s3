@@ -2,6 +2,8 @@
 
 import logging
 import os
+import time
+import json
 from .config import LOG_LEVEL, LOG_FORMAT, USE_LOKI
 
 
@@ -86,7 +88,3 @@ def setup_logging():
     # Create structured logger for application
     return StructuredLogger(__name__)
 
-
-# Import time for StructuredLogger
-import time
-import json
