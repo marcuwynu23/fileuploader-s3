@@ -105,6 +105,22 @@ STORAGE_BUCKET=your-bucket-name              # target bucket
 
 ### 5. Run app
 
+#### Option 1: Using Docker Compose (Recommended)
+
+```bash
+docker-compose up -d
+```
+
+This will start both MinIO and the fileuploader service with hot-reloading enabled.
+
+The app will be available at:
+
+```
+http://localhost:2424/
+```
+
+#### Option 2: Run locally
+
 ```sh
 uv run app
 ```
