@@ -12,6 +12,19 @@ import io
 # Set environment variables to bypass OpenSSL issues
 os.environ['OPENSSL_CONF'] = ''
 
+# Set test environment variables BEFORE any imports
+os.environ.update({
+    'ENCRYPTION_KEY': 'SZOnm/8TvkYACNXn/MM/agc/M+seIlnI4+MLR2/Xr78=',
+    'BASE_URL': 'http://test.example.com',
+    'ROUTE_PREFIX': '/api/test/fileuploader',
+    'BASE_FOLDER': 'test_uploads',
+    'STORAGE_ENDPOINT': 'http://test-s3.example.com',
+    'STORAGE_ACCESS_KEY': 'test-access-key',
+    'STORAGE_SECRET_KEY': 'test-secret-key',
+    'STORAGE_BUCKET': 'test-bucket',
+    'USE_S3': 'false'  # Disable S3 for testing to avoid OpenSSL dependency
+})
+
 @pytest.fixture
 def mock_s3_dependencies():
     """Mock S3 dependencies to avoid OpenSSL issues."""
@@ -37,23 +50,11 @@ def mock_s3_dependencies():
 @pytest.fixture
 def client(mock_s3_dependencies):
     """Create a test client for the Flask application."""
-    # Import after mocking
+    # Import after mocking (environment variables already set above)
     from src.fileuploader_s3.main import app
     
     app.config['TESTING'] = True
     app.config['WTF_CSRF_ENABLED'] = False
-    
-    # Set test environment variables
-    os.environ.update({
-        'ENCRYPTION_KEY': 'SZOnm/8TvkYACNXn/MM/agc/M+seIlnI4+MLR2/Xr78=',
-        'BASE_URL': 'http://test.example.com',
-        'ROUTE_PREFIX': '/api/test/fileuploader',
-        'BASE_FOLDER': 'test_uploads',
-        'STORAGE_ENDPOINT': 'http://test-s3.example.com',
-        'STORAGE_ACCESS_KEY': 'test-access-key',
-        'STORAGE_SECRET_KEY': 'test-secret-key',
-        'STORAGE_BUCKET': 'test-bucket'
-    })
     
     with app.test_client() as client:
         yield client
@@ -62,7 +63,6 @@ def client(mock_s3_dependencies):
 def temp_upload_dir():
     """Create a temporary directory for file uploads during testing."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        os.environ['BASE_FOLDER'] = temp_dir
         yield temp_dir
 
 @pytest.fixture
@@ -168,8 +168,8 @@ def invalid_filenames():
 @pytest.fixture
 def allowed_file_extensions():
     """Return list of allowed file extensions."""
-    from src.fileuploader_s3.security_helpers import SecurityConfig
-    return list(SecurityConfig.ALLOWED_MIME_TYPES.keys())
+    from src.fileuploader_s3.main import ALLOWED_MIME_TYPES
+    return list(ALLOWED_MIME_TYPES.keys())
 
 @pytest.fixture
 def disallowed_file_extensions():

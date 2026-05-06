@@ -4,29 +4,30 @@ Test cases for security helper functions.
 
 import pytest
 from pathlib import Path
-from src.fileuploader_s3.security_helpers import (
-    SecurityConfig, validate_folder_name, validate_filename,
+from src.fileuploader_s3.main import (
+    ALLOWED_MIME_TYPES, MAX_FILE_SIZE, BLOCKED_PATTERNS,
+    validate_folder_name, validate_filename,
     get_safe_file_path, get_mime_type, is_allowed_file_type,
     generate_public_url, sanitize_filename
 )
 
 
 class TestSecurityConfig:
-    """Test SecurityConfig class."""
+    """Test SecurityConfig constants."""
     
     def test_allowed_mime_types_not_empty(self):
         """Test that allowed MIME types are defined."""
-        assert SecurityConfig.ALLOWED_MIME_TYPES
-        assert len(SecurityConfig.ALLOWED_MIME_TYPES) > 0
+        assert ALLOWED_MIME_TYPES
+        assert len(ALLOWED_MIME_TYPES) > 0
     
     def test_max_file_size_positive(self):
         """Test that max file size is positive."""
-        assert SecurityConfig.MAX_FILE_SIZE > 0
+        assert MAX_FILE_SIZE > 0
     
     def test_blocked_patterns_defined(self):
         """Test that blocked patterns are defined."""
-        assert SecurityConfig.BLOCKED_PATTERNS
-        assert len(SecurityConfig.BLOCKED_PATTERNS) > 0
+        assert BLOCKED_PATTERNS
+        assert len(BLOCKED_PATTERNS) > 0
 
 
 class TestValidateFolderName:

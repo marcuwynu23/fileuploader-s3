@@ -20,7 +20,7 @@ class TestSingleUpload:
             'file': (sample_image_file, 'test.png', 'image/png')
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -189,7 +189,7 @@ class TestMultipleUpload:
             ]
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -240,7 +240,7 @@ class TestMultipleUpload:
             ]
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -269,7 +269,7 @@ class TestChunkUpload:
             'dztotalchunkcount': '1'
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -314,14 +314,15 @@ class TestChunkUpload:
             'dzchunkindex': '2',  # Final chunk
             'dztotalchunkcount': '3'
         }
-        
-        # Mock existing chunks
-        temp_dir = Path(temp_upload_dir) / 'temp' / 'test'
+
+        # Mock existing chunks in the correct test_uploads directory
+        base_folder = Path('test_uploads')
+        temp_dir = base_folder / 'temp' / 'test'
         temp_dir.mkdir(parents=True, exist_ok=True)
         (temp_dir / 'image.png.part0').write_bytes(b'chunk1')
         (temp_dir / 'image.png.part1').write_bytes(b'chunk2')
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(
@@ -337,7 +338,7 @@ class TestChunkUpload:
             assert response_data['filename'] == 'image.png'
             
             # Verify file was combined
-            final_file = Path(temp_upload_dir) / 'test' / 'image.png'
+            final_file = Path('test_uploads') / 'test' / 'image.png'
             assert final_file.exists()
     
     def test_chunk_upload_invalid_folder(self, client, sample_image_file):
@@ -396,7 +397,7 @@ class TestMultipleChunkUpload:
             'dztotalchunkcount': '1'
         }
         
-        with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
+        with patch('fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
             
             response = client.post(

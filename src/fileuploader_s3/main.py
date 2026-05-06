@@ -5,16 +5,25 @@ from dotenv import load_dotenv
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import markdown
-import boto3
-from botocore.client import Config
 import mimetypes
-from fileuploader_s3.security import encrypt_key, decrypt_key
-from fileuploader_s3.security_helpers import (
-    SecurityConfig, validate_folder_name, validate_filename,
-    get_safe_file_path, get_mime_type, is_allowed_file_type,
-    generate_public_url, sanitize_filename
-)
+# Security functions now implemented inline to avoid OpenSSL dependencies
+import re
+import base64
 
+# Optional S3/MinIO support (can be disabled to avoid OpenSSL dependencies)
+USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
+boto3 = None
+Config = None
+if USE_S3:
+    try:
+        import boto3
+        from botocore.client import Config
+    except ImportError as e:
+        print(f"Warning: S3 dependencies not available: {e}")
+        print("Falling back to local storage only")
+        USE_S3 = False
+
+# Load environment variables before checking USE_S3
 load_dotenv()
 
 app = Flask(__name__)
@@ -26,6 +35,132 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:2424")
 ROUTE_PREFIX = os.getenv("ROUTE_PREFIX", "/api/bcloud/fileuploader")
 BASE_FOLDER = os.getenv("BASE_FOLDER", "uploads")  # Local storage for static serving
 
+# ---- Security Configuration ----
+ALLOWED_MIME_TYPES = {
+    # Images
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    # Documents
+    '.pdf': 'application/pdf',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.doc': 'application/msword',
+    # Videos
+    '.mp4': 'video/mp4',
+    '.avi': 'video/x-msvideo',
+    '.mov': 'video/quicktime',
+    # Archives
+    '.zip': 'application/zip',
+    '.tar': 'application/x-tar',
+    '.gz': 'application/gzip',
+}
+
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+BLOCKED_PATTERNS = [
+    r'\.\./',  # Parent directory traversal
+    r'\.\.\\',  # Windows parent directory traversal
+    r'^\.\./',  # Starting with parent directory
+    r'^\.\.\\',  # Starting with Windows parent directory
+    r'^/',  # Absolute paths
+    r'^\\',  # Windows absolute paths
+]
+
+# ---- Security Functions ----
+def validate_folder_name(folder: str) -> bool:
+    """Validate folder name to prevent path traversal attacks."""
+    if not folder or not isinstance(folder, str):
+        return False
+    if len(folder) > 255:
+        return False
+    for pattern in BLOCKED_PATTERNS:
+        if re.search(pattern, folder, re.IGNORECASE):
+            return False
+    if not re.match(r'^[a-zA-Z0-9._-]+$', folder):
+        return False
+    return True
+
+def validate_filename(filename: str) -> bool:
+    """Validate filename to prevent path traversal attacks."""
+    if not filename or not isinstance(filename, str):
+        return False
+    if len(filename) > 255:
+        return False
+    for pattern in BLOCKED_PATTERNS:
+        if re.search(pattern, filename, re.IGNORECASE):
+            return False
+    invalid_chars = r'[<>:"|?*\x00-\x1f]'
+    if re.search(invalid_chars, filename):
+        return False
+    return True
+
+def get_safe_file_path(base_folder: str, folder: str, filename: str):
+    """Create a safe file path preventing path traversal attacks."""
+    if not validate_folder_name(folder) or not validate_filename(filename):
+        return None
+    try:
+        base_path = Path(base_folder).resolve()
+        folder_path = base_path / folder
+        file_path = folder_path / filename
+        file_path_resolved = file_path.resolve()
+        base_path_resolved = base_path.resolve()
+        try:
+            file_path_resolved.relative_to(base_path_resolved)
+            return file_path_resolved
+        except ValueError:
+            return None
+    except (ValueError, OSError):
+        return None
+
+def get_mime_type(filename: str) -> str:
+    """Get MIME type for a filename based on extension."""
+    ext = Path(filename).suffix.lower()
+    return ALLOWED_MIME_TYPES.get(ext, 'application/octet-stream')
+
+def is_allowed_file_type(filename: str) -> bool:
+    """Check if file type is allowed based on extension."""
+    ext = Path(filename).suffix.lower()
+    return ext in ALLOWED_MIME_TYPES
+
+def generate_public_url(base_url: str, folder: str, filename: str) -> str:
+    """Generate a clean, Gmail-compatible public URL for a file."""
+    clean_base_url = base_url.rstrip('/')
+    return f"{clean_base_url}/uploads/{folder}/{filename}"
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename for safe storage."""
+    sanitized = filename.replace(' ', '_')
+    sanitized = re.sub(r'[<>:"|?*\x00-\x1f]', '', sanitized)
+    if not sanitized or sanitized == '.' or sanitized == '..':
+        sanitized = 'unnamed_file'
+    return sanitized
+
+def encrypt_key(folder: str, filename: str) -> str:
+    """Simple XOR encryption for basic obfuscation."""
+    SECRET_KEY = os.getenv("ENCRYPTION_KEY", "default_key")
+    raw = f"{folder}/{filename}"
+    result = []
+    key_bytes = SECRET_KEY.encode()
+    for i, char in enumerate(raw):
+        result.append(chr(ord(char) ^ key_bytes[i % len(key_bytes)]))
+    encrypted = ''.join(result)
+    return base64.b64encode(encrypted.encode()).decode()
+
+def decrypt_key(token: str):
+    """Decrypt token using XOR and base64 decoding."""
+    try:
+        SECRET_KEY = os.getenv("ENCRYPTION_KEY", "default_key")
+        decoded = base64.b64decode(token.encode()).decode()
+        result = []
+        key_bytes = SECRET_KEY.encode()
+        for i, char in enumerate(decoded):
+            result.append(chr(ord(char) ^ key_bytes[i % len(key_bytes)]))
+        return ''.join(result)
+    except Exception:
+        return None
+
 # S3/MinIO Configuration
 STORAGE_ENDPOINT = os.getenv("STORAGE_ENDPOINT", "http://localhost:9000")
 STORAGE_ACCESS_KEY = os.getenv("STORAGE_ACCESS_KEY", "admin")
@@ -36,21 +171,23 @@ STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "fileuploads")
 Path(BASE_FOLDER).mkdir(parents=True, exist_ok=True)
 
 # ---- Storage clients ----
-# S3/MinIO client for cloud storage
-s3_client = boto3.client(
-    "s3",
-    endpoint_url=STORAGE_ENDPOINT,
-    aws_access_key_id=STORAGE_ACCESS_KEY,
-    aws_secret_access_key=STORAGE_SECRET_KEY,
-    config=Config(signature_version="s3v4"),
-    region_name="us-east-1",
-)
-
-# Ensure S3 bucket exists
-try:
-    s3_client.head_bucket(Bucket=STORAGE_BUCKET)
-except:
-    s3_client.create_bucket(Bucket=STORAGE_BUCKET)
+s3_client = None
+if USE_S3:
+    # S3/MinIO client for cloud storage
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=STORAGE_ENDPOINT,
+        aws_access_key_id=STORAGE_ACCESS_KEY,
+        aws_secret_access_key=STORAGE_SECRET_KEY,
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+    
+    # Ensure S3 bucket exists
+    try:
+        s3_client.head_bucket(Bucket=STORAGE_BUCKET)
+    except:
+        s3_client.create_bucket(Bucket=STORAGE_BUCKET)
 
 # ---- Helper Functions ----
 def create_folder_if_not_exists(folder_path: Path) -> bool:
@@ -117,7 +254,7 @@ def upload_file():
         return jsonify({"error": "Invalid filename"}), 400
         
     if not is_allowed_file_type(original_filename):
-        return jsonify({"error": f"File type not allowed. Allowed types: {list(SecurityConfig.ALLOWED_MIME_TYPES.keys())}"}), 400
+        return jsonify({"error": f"File type not allowed. Allowed types: {list(ALLOWED_MIME_TYPES.keys())}"}), 400
 
     filename = sanitize_filename(original_filename)
     
@@ -126,8 +263,8 @@ def upload_file():
     file_size = file.tell()
     file.seek(0)  # Reset file pointer
     
-    if file_size > SecurityConfig.MAX_FILE_SIZE:
-        return jsonify({"error": f"File too large. Maximum size: {SecurityConfig.MAX_FILE_SIZE // (1024*1024)}MB"}), 400
+    if file_size > MAX_FILE_SIZE:
+        return jsonify({"error": f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"}), 400
 
     try:
         # Save to local storage for static serving
@@ -136,9 +273,10 @@ def upload_file():
         if not success:
             return jsonify({"error": f"Failed to save file: {result}"}), 500
         
-        # Also save to S3 for backup
-        file.seek(0)  # Reset file pointer for S3 upload
-        s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+        # Also save to S3 for backup (if enabled)
+        if USE_S3 and s3_client:
+            file.seek(0)  # Reset file pointer for S3 upload
+            s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
         
         # Generate Gmail-compatible static URL
         public_url = generate_public_url(BASE_URL, folder, filename)
@@ -191,7 +329,7 @@ def upload_multiple_files():
         file_size = file.tell()
         file.seek(0)
         
-        if file_size > SecurityConfig.MAX_FILE_SIZE:
+        if file_size > MAX_FILE_SIZE:
             errors.append(f"File too large: {original_filename}")
             continue
         
@@ -202,9 +340,10 @@ def upload_multiple_files():
                 errors.append(f"Failed to save {original_filename}: {result}")
                 continue
             
-            # Also save to S3
-            file.seek(0)
-            s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
+            # Also save to S3 (if enabled)
+            if USE_S3 and s3_client:
+                file.seek(0)
+                s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
             
             # Generate public URL
             public_url = generate_public_url(BASE_URL, folder, filename)
@@ -254,7 +393,7 @@ def upload_chunk():
         return jsonify({"error": "Invalid filename"}), 400
         
     if not is_allowed_file_type(original_filename):
-        return jsonify({"error": f"File type not allowed. Allowed types: {list(SecurityConfig.ALLOWED_MIME_TYPES.keys())}"}), 400
+        return jsonify({"error": f"File type not allowed. Allowed types: {list(ALLOWED_MIME_TYPES.keys())}"}), 400
 
     filename = sanitize_filename(original_filename)
     
@@ -287,14 +426,21 @@ def upload_chunk():
             # Remove temp folder if empty
             try:
                 temp_folder.rmdir()
-                Path(BASE_FOLDER / "temp" / folder).rmdir()
-                Path(BASE_FOLDER / "temp").rmdir()
+                Path(BASE_FOLDER) / "temp" / folder
+                Path(BASE_FOLDER) / "temp"
+                # Try to remove folders if they're empty
+                try:
+                    (Path(BASE_FOLDER) / "temp" / folder).rmdir()
+                    (Path(BASE_FOLDER) / "temp").rmdir()
+                except OSError:
+                    pass
             except OSError:
                 pass
             
-            # Upload to S3
-            with open(final_path, 'rb') as final_file:
-                s3_client.upload_fileobj(final_file, STORAGE_BUCKET, f"{folder}/{filename}")
+            # Upload to S3 (if enabled)
+            if USE_S3 and s3_client:
+                with open(final_path, 'rb') as final_file:
+                    s3_client.upload_fileobj(final_file, STORAGE_BUCKET, f"{folder}/{filename}")
             
             # Generate Gmail-compatible static URL
             public_url = generate_public_url(BASE_URL, folder, filename)
@@ -374,9 +520,10 @@ def upload_multiple_chunks():
                                 outfile.write(infile.read())
                             chunk_file.unlink()  # Remove chunk
                 
-                # Upload to S3
-                with open(final_path, 'rb') as final_file:
-                    s3_client.upload_fileobj(final_file, STORAGE_BUCKET, f"{folder}/{filename}")
+                # Upload to S3 (if enabled)
+                if USE_S3 and s3_client:
+                    with open(final_path, 'rb') as final_file:
+                        s3_client.upload_fileobj(final_file, STORAGE_BUCKET, f"{folder}/{filename}")
                 
                 # Generate Gmail-compatible static URL
                 public_url = generate_public_url(BASE_URL, folder, filename)
@@ -538,8 +685,9 @@ def delete_file(token):
             except OSError:
                 pass  # Folder not empty or other error
         
-        # Delete from S3
-        s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
+        # Delete from S3 (if enabled)
+        if USE_S3 and s3_client:
+            s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
         
         return jsonify({
             "message": f"File {filename} deleted successfully",

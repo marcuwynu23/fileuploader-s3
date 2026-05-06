@@ -21,12 +21,15 @@ class TestDeleteFunctionality:
 
         file_path = upload_dir / 'test.png'
         file_path.write_bytes(sample_image_file.read())
+
+        # Delete the file with proper token
+        from src.fileuploader_s3.main import encrypt_key
+        token = encrypt_key('test', 'test.png')
         
-        # Delete the file
         with patch('fileuploader_s3.main.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/test.png'
-            
-            response = client.delete('/api/test/fileuploader/delete/fake_token')
+
+            response = client.delete(f'/api/test/fileuploader/delete/{token}')
             
             assert response.status_code == 200
             

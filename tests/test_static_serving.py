@@ -14,8 +14,9 @@ class TestStaticFileServing:
     
     def test_valid_file_access(self, client, temp_upload_dir, sample_image_file):
         """Test accessing a valid uploaded file."""
-        # First upload a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        # First upload a file in the correct base folder
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = upload_dir / 'test.png'
@@ -89,7 +90,8 @@ class TestStaticFileServing:
         
         for filename, file_content, expected_mime in test_cases:
             # Upload file
-            upload_dir = Path(temp_upload_dir) / 'test'
+            base_folder = 'test_uploads'
+            upload_dir = Path(base_folder) / 'test'
             upload_dir.mkdir(parents=True, exist_ok=True)
             
             file_path = upload_dir / filename
@@ -103,14 +105,15 @@ class TestStaticFileServing:
             assert response.headers['Content-Disposition'] == f'inline; filename="{filename}"'
     
     def test_cache_headers(self, client, temp_upload_dir, sample_image_file):
-        """Test that cache headers are properly set."""
-        # Upload a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        """Test cache headers for static files."""
+        # First upload a file
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'test.png'
         file_path.write_bytes(sample_image_file.read())
-        
+
         # Access the file
         response = client.get('/uploads/test/test.png')
         
@@ -122,12 +125,13 @@ class TestStaticFileServing:
     def test_range_requests(self, client, temp_upload_dir, sample_image_file):
         """Test that range requests are supported."""
         # Upload a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'test.png'
         file_path.write_bytes(sample_image_file.read())
-        
+
         # Request with range header
         response = client.get('/uploads/test/test.png', headers={'Range': 'bytes=0-10'})
         
@@ -135,15 +139,16 @@ class TestStaticFileServing:
         assert 'Accept-Ranges' in response.headers
         assert response.headers['Accept-Ranges'] == 'bytes'
     
-    def test_special_characters_in_filename(self, client, temp_upload_dir):
+    def test_special_characters_in_filename(self, client, temp_upload_dir, sample_image_file):
         """Test accessing files with special characters in filename."""
         # Create a file with special characters
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'file_with_underscores-and-dashes.png'
         file_path.write_bytes(b'fake png content')
-        
+
         # Access the file
         response = client.get('/uploads/test/file_with_underscores-and-dashes.png')
         
@@ -153,13 +158,14 @@ class TestStaticFileServing:
     def test_nested_folder_access(self, client, temp_upload_dir, sample_image_file):
         """Test accessing files in nested folders."""
         # Create nested folder structure
-        nested_dir = Path(temp_upload_dir) / 'test' / 'nested' / 'folder'
+        base_folder = 'test_uploads'
+        nested_dir = Path(base_folder) / 'test' / 'nested' / 'folder'
         nested_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = nested_dir / 'image.png'
         file_path.write_bytes(sample_image_file.read())
-        
-        # This should fail as we only support one level of folder
+
+        # Access the file
         response = client.get('/uploads/test/nested/folder/image.png')
         
         assert response.status_code == 400
@@ -173,25 +179,26 @@ class TestLegacyRenderEndpoint:
     def test_legacy_redirect(self, client, temp_upload_dir, sample_image_file):
         """Test that legacy endpoint redirects to new static URL."""
         # Create a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'test.png'
         file_path.write_bytes(sample_image_file.read())
-        
+
         # Create a valid token (this would normally be encrypted)
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('fileuploader_s3.main.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = 'test/test.png'
-            
+
             response = client.get('/api/test/fileuploader/render/fake_token')
-            
+
             assert response.status_code == 301
             assert 'Location' in response.headers
             assert response.headers['Location'] == 'http://test.example.com/uploads/test/test.png'
     
     def test_legacy_invalid_token(self, client):
         """Test legacy endpoint with invalid token."""
-        with patch('src.fileuploader_s3.main.decrypt_key') as mock_decrypt:
+        with patch('fileuploader_s3.main.decrypt_key') as mock_decrypt:
             mock_decrypt.return_value = None
             
             response = client.get('/api/test/fileuploader/render/invalid_token')
@@ -229,7 +236,8 @@ class TestGmailCompatibility:
     def test_gmail_friendly_url_format(self, client, temp_upload_dir, sample_image_file):
         """Test that URLs are Gmail-friendly."""
         # Upload a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = upload_dir / 'logo.png'
@@ -264,9 +272,10 @@ class TestGmailCompatibility:
         
         for filename, file_content, expected_mime in test_cases:
             # Upload file
-            upload_dir = Path(temp_upload_dir) / 'test'
+            base_folder = 'test_uploads'
+            upload_dir = Path(base_folder) / 'test'
             upload_dir.mkdir(parents=True, exist_ok=True)
-            
+
             file_path = upload_dir / filename
             file_path.write_bytes(file_content.read())
             
@@ -282,12 +291,13 @@ class TestGmailCompatibility:
     def test_cache_headers_for_email_clients(self, client, temp_upload_dir, sample_image_file):
         """Test cache headers optimized for email clients."""
         # Upload a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'logo.png'
         file_path.write_bytes(sample_image_file.read())
-        
+
         # Access the file
         response = client.get('/uploads/test/logo.png')
         
@@ -301,12 +311,13 @@ class TestGmailCompatibility:
     def test_no_redirects_for_gmail(self, client, temp_upload_dir, sample_image_file):
         """Test that file access doesn't involve redirects (Gmail blocks redirects)."""
         # Upload a file
-        upload_dir = Path(temp_upload_dir) / 'test'
+        base_folder = 'test_uploads'
+        upload_dir = Path(base_folder) / 'test'
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
+
         file_path = upload_dir / 'logo.png'
         file_path.write_bytes(sample_image_file.read())
-        
+
         # Access the file
         response = client.get('/uploads/test/logo.png')
         
