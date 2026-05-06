@@ -32,10 +32,6 @@ except ImportError:
     print("Warning: python-magic not available. Using basic file validation.")
     print("To install magic on Windows: pip install python-magic-bin")
 
-# Optional observability support
-USE_PROMETHEUS = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
-USE_LOKI = os.getenv("USE_LOKI", "false").lower() == "true"
-
 # Prometheus metrics (always initialize but only use if enabled)
 prometheus_metrics = None
 try:
@@ -52,21 +48,24 @@ try:
 except ImportError:
     print("Warning: Prometheus client not available. Install with: pip install prometheus-client")
 
-# Optional S3/MinIO support (can be disabled to avoid OpenSSL dependencies)
-USE_S3 = os.getenv("USE_S3", "false").lower() == "true"
+# Load environment variables before checking USE_BUCKET_STORAGE
+load_dotenv()
+
+# Optional observability support
+USE_PROMETHEUS = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
+USE_LOKI = os.getenv("USE_LOKI", "false").lower() == "true"
+
+# S3/MinIO support (mandatory for this application)
 boto3 = None
 Config = None
-if USE_S3:
-    try:
-        import boto3
-        from botocore.client import Config
-    except ImportError as e:
-        print(f"Warning: S3 dependencies not available: {e}")
-        print("Falling back to local storage only")
-        USE_S3 = False
-
-# Load environment variables before checking USE_S3
-load_dotenv()
+try:
+    import boto3
+    from botocore.client import Config
+except ImportError as e:
+    print(f"❌ ERROR: S3 dependencies not available: {e}")
+    print("❌ ERROR: This application requires S3 storage. Please install boto3:")
+    print("   pip install boto3")
+    exit(1)
 
 app = Flask(__name__)
 CORS(app)
@@ -221,7 +220,6 @@ app_logger = setup_logging()
 # ---- Config ----
 BASE_URL = os.getenv("BASE_URL", "http://localhost:2424")
 ROUTE_PREFIX = os.getenv("ROUTE_PREFIX", "/api/fileuploader")
-BASE_FOLDER = os.getenv("BASE_FOLDER", "uploads")  # Local storage for static serving
 
 # ---- Security Configuration ----
 ALLOWED_MIME_TYPES = {
@@ -454,13 +452,10 @@ STORAGE_ACCESS_KEY = os.getenv("STORAGE_ACCESS_KEY", "admin")
 STORAGE_SECRET_KEY = os.getenv("STORAGE_SECRET_KEY", "admin123")
 STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "fileuploads")
 
-# Ensure base uploads folder exists
-Path(BASE_FOLDER).mkdir(parents=True, exist_ok=True)
-
 # ---- Storage clients ----
-s3_client = None
-if USE_S3:
-    # S3/MinIO client for cloud storage
+print(f"🔍 Initializing S3 client...")
+try:
+    # S3/MinIO client for cloud storage (mandatory)
     s3_client = boto3.client(
         "s3",
         endpoint_url=STORAGE_ENDPOINT,
@@ -473,8 +468,20 @@ if USE_S3:
     # Ensure S3 bucket exists
     try:
         s3_client.head_bucket(Bucket=STORAGE_BUCKET)
+        print(f"✓ S3 bucket '{STORAGE_BUCKET}' is accessible at {STORAGE_ENDPOINT}")
     except:
         s3_client.create_bucket(Bucket=STORAGE_BUCKET)
+        print(f"✓ Created S3 bucket '{STORAGE_BUCKET}' at {STORAGE_ENDPOINT}")
+        
+except Exception as s3_init_error:
+    print(f"❌ Failed to initialize S3 client: {s3_init_error}")
+    print(f"❌ ERROR: This application requires S3 storage to function")
+    print(f"   Please check your S3 configuration:")
+    print(f"   - STORAGE_ENDPOINT: {STORAGE_ENDPOINT}")
+    print(f"   - STORAGE_ACCESS_KEY: {STORAGE_ACCESS_KEY}")
+    print(f"   - STORAGE_BUCKET: {STORAGE_BUCKET}")
+    print(f"   Make sure your S3 service is running and accessible")
+    exit(1)
 
 # ---- Helper Functions ----
 def create_folder_if_not_exists(folder_path: Path) -> bool:
@@ -486,40 +493,12 @@ def create_folder_if_not_exists(folder_path: Path) -> bool:
         return False
 
 def save_file_locally(file, folder: str, filename: str, base_folder: str = None) -> tuple[bool, str]:
-    """Save file to local storage with proper locking and validation."""
-    try:
-        if base_folder is None:
-            base_folder = BASE_FOLDER
-        folder_path = Path(base_folder) / folder
-        if not create_folder_if_not_exists(folder_path):
-            return False, "Failed to create folder"
-            
-        file_path = folder_path / filename
-        
-        # Read file content for validation
-        file.seek(0)
-        file_content = file.read(MAX_FILE_SIZE + 1)  # Read slightly more to check size
-        
-        # Validate file size
-        if len(file_content) > MAX_FILE_SIZE:
-            return False, f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"
-        
-        # Validate file content
-        expected_mime = get_mime_type(filename)
-        if not validate_file_content(file_content, expected_mime):
-            return False, f"File content does not match expected type: {expected_mime}"
-        
-        # Write file with locking
-        with open(file_path, 'wb') as f:
-            portalocker.lock(f, portalocker.LOCK_EX)
-            f.write(file_content)
-            portalocker.unlock(f)
-        
-        # Ensure file handle is closed
-        file.close()
-        return True, str(file_path)
-    except Exception as e:
-        return False, str(e)
+    """DEPRECATED: Local storage disabled - use S3 storage only."""
+    return False, "Local storage disabled - use S3 storage only"
+
+def save_file_locally_with_content(file_content: bytes, folder: str, filename: str, base_folder: str = None) -> tuple[bool, str]:
+    """DEPRECATED: Local storage disabled - use S3 storage only."""
+    return False, "Local storage disabled - use S3 storage only"
 
 
 @app.route("/")
@@ -593,37 +572,39 @@ def upload_file():
         if USE_PROMETHEUS and prometheus_metrics:
             prometheus_metrics['active_uploads'].inc()
         
-        # Save to local storage for static serving
-        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
-        success, result = save_file_locally(file, folder, filename, base_folder)
-        if not success:
-            app_logger.error("Failed to save file locally", 
-                          folder=folder, filename=filename, error=result, 
-                          file_size=file_size, client_ip=request.remote_addr)
+        # S3 storage is mandatory - if we reach here, S3 client should be available
+        if not s3_client:
+            app_logger.error("S3 client not available", 
+                          folder=folder, filename=filename, 
+                          client_ip=request.remote_addr)
             if USE_PROMETHEUS and prometheus_metrics:
                 prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
                 prometheus_metrics['active_uploads'].dec()
-            return jsonify({"error": f"Failed to save file: {result}"}), 500
+            return jsonify({"error": "S3 client not available - check configuration"}), 500
         
-        # Also save to S3 for backup (if enabled)
-        if USE_S3 and s3_client:
-            try:
-                file.seek(0)  # Reset file pointer for S3 upload
-                s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
-                app_logger.info("File successfully uploaded to S3", 
-                             folder=folder, filename=filename, 
-                             file_size=file_size, backend='s3')
-            except Exception as s3_error:
-                app_logger.error("S3 upload failed", 
-                              folder=folder, filename=filename, 
-                              error=str(s3_error), backend='s3',
-                              client_ip=request.remote_addr)
-                # If S3 upload fails, still consider it a success if local upload worked
-                # but return the error for debugging
-                if USE_PROMETHEUS and prometheus_metrics:
-                    prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
-                    prometheus_metrics['active_uploads'].dec()
-                return jsonify({"error": f"Upload failed: {str(s3_error)}"}), 500
+        # Read file content before any processing to avoid file handle issues
+        file.seek(0)
+        file_content = file.read()
+        
+        # Upload to S3 storage
+        app_logger.info(f"Uploading to S3 storage - Bucket: {STORAGE_BUCKET}, Endpoint: {STORAGE_ENDPOINT}")
+        try:
+            # Use file content for S3 upload
+            from io import BytesIO
+            file_obj = BytesIO(file_content)
+            s3_client.upload_fileobj(file_obj, STORAGE_BUCKET, f"{folder}/{filename}")
+            app_logger.info("File successfully uploaded to S3", 
+                         folder=folder, filename=filename, 
+                         file_size=file_size, backend='s3')
+        except Exception as s3_error:
+            app_logger.error("S3 upload failed", 
+                          folder=folder, filename=filename, 
+                          error=str(s3_error), backend='s3',
+                          client_ip=request.remote_addr)
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
+                prometheus_metrics['active_uploads'].dec()
+            return jsonify({"error": f"Upload failed: {str(s3_error)}"}), 500
         
         # Generate Gmail-compatible static URL
         public_url = generate_public_url(BASE_URL, folder, filename)
@@ -633,7 +614,7 @@ def upload_file():
         app_logger.info("File uploaded successfully", 
                       folder=folder, filename=filename, 
                       file_size=file_size, duration=duration,
-                      url=public_url, backend='local',
+                      url=public_url, backend='s3',
                       client_ip=request.remote_addr)
         
         # Update Prometheus metrics
@@ -712,7 +693,7 @@ def upload_multiple_files():
                 continue
             
             # Also save to S3 (if enabled)
-            if USE_S3 and s3_client:
+            if USE_BUCKET_STORAGE and s3_client:
                 try:
                     file.seek(0)
                     s3_client.upload_fileobj(file, STORAGE_BUCKET, f"{folder}/{filename}")
@@ -783,14 +764,8 @@ def upload_chunk():
     filename = sanitize_filename(original_filename)
     
     try:
-        # Create temporary folder for chunks with locking
-        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
-        temp_folder = Path(base_folder) / "temp" / folder
-        temp_folder.mkdir(parents=True, exist_ok=True)
-        
-        # Use unique filename to prevent conflicts
-        chunk_filename = f"{filename}.part{chunk_index}"
-        chunk_path = temp_folder / chunk_filename
+        # For S3-only storage, we need to handle chunk uploads differently
+        # Store chunks in memory or temporary S3 location, then combine for final upload
         
         # Validate chunk size
         file.seek(0, os.SEEK_END)
@@ -800,76 +775,52 @@ def upload_chunk():
         if chunk_size > MAX_CHUNK_SIZE:
             return jsonify({"error": f"Chunk too large. Maximum size: {MAX_CHUNK_SIZE // (1024*1024)}MB"}), 400
         
-        # Save chunk with locking
-        with open(chunk_path, 'wb') as f:
-            portalocker.lock(f, portalocker.LOCK_EX)
-            file_content = file.read()
-            
-            # Validate chunk content
-            expected_mime = get_mime_type(filename)
-            if chunk_index == 0 and not validate_file_content(file_content, expected_mime):
-                portalocker.unlock(f)
-                return jsonify({"error": f"File content does not match expected type: {expected_mime}"}), 400
-            
-            f.write(file_content)
-            portalocker.unlock(f)
+        # Read chunk content for validation
+        file_content = file.read()
+        
+        # Validate chunk content (only first chunk)
+        expected_mime = get_mime_type(filename)
+        if chunk_index == 0 and not validate_file_content(file_content, expected_mime):
+            return jsonify({"error": f"File content does not match expected type: {expected_mime}"}), 400
+        
+        # For S3-only storage, we'll handle chunk uploads by storing in a temporary S3 location
+        # This is a simplified version - in production, you might want a more sophisticated approach
+        temp_key = f"temp/{folder}/{filename}.part{chunk_index}"
+        
+        try:
+            s3_client.put_object(
+                Bucket=STORAGE_BUCKET,
+                Key=temp_key,
+                Body=file_content
+            )
+        except Exception as s3_error:
+            return jsonify({"error": f"Failed to store chunk: {str(s3_error)}"}), 500
         
         # Check if this is the last chunk
         if chunk_index == total_chunks - 1:
-            # Combine all chunks
-            final_folder = Path(base_folder) / folder
-            final_folder.mkdir(parents=True, exist_ok=True)
-            final_path = final_folder / filename
-            
-            # Combine chunks into final file with proper locking
-            with open(final_path, 'wb') as outfile:
-                portalocker.lock(outfile, portalocker.LOCK_EX)
-                
-                # Verify all chunks exist before combining
-                missing_chunks = []
-                for i in range(total_chunks):
-                    chunk_file = temp_folder / f"{filename}.part{i}"
-                    if not chunk_file.exists():
-                        missing_chunks.append(i)
-                
-                if missing_chunks:
-                    portalocker.unlock(outfile)
-                    return jsonify({"error": f"Missing chunks: {missing_chunks}"}), 400
-                
-                # Combine all chunks
-                for i in range(total_chunks):
-                    chunk_file = temp_folder / f"{filename}.part{i}"
-                    if chunk_file.exists():
-                        with open(chunk_file, 'rb') as infile:
-                            portalocker.lock(infile, portalocker.LOCK_SH)
-                            outfile.write(infile.read())
-                            portalocker.unlock(infile)
-                        chunk_file.unlink()  # Remove chunk
-                
-                portalocker.unlock(outfile)
-            
-            # Remove temp folder if empty
-            try:
-                temp_folder.rmdir()
-                Path(BASE_FOLDER) / "temp" / folder
-                Path(BASE_FOLDER) / "temp"
-                # Try to remove folders if they're empty
+            # Combine all chunks from S3 temp location
+            all_chunks_content = b''
+            for i in range(total_chunks):
+                chunk_key = f"temp/{folder}/{filename}.part{i}"
                 try:
-                    (Path(BASE_FOLDER) / "temp" / folder).rmdir()
-                    (Path(BASE_FOLDER) / "temp").rmdir()
-                except OSError:
-                    pass
-            except OSError:
-                pass
+                    chunk_obj = s3_client.get_object(Bucket=STORAGE_BUCKET, Key=chunk_key)
+                    all_chunks_content += chunk_obj['Body'].read()
+                    # Delete temporary chunk
+                    s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=chunk_key)
+                except s3_client.exceptions.NoSuchKey:
+                    return jsonify({"error": f"Missing chunk {i}"}), 400
             
-            # Upload to S3 (if enabled)
-            if USE_S3 and s3_client:
-                with open(final_path, 'rb') as final_file:
-                    s3_client.upload_fileobj(final_file, STORAGE_BUCKET, f"{folder}/{filename}")
+            # Upload combined file to final location
+            final_key = f"{folder}/{filename}"
+            s3_client.put_object(
+                Bucket=STORAGE_BUCKET,
+                Key=final_key,
+                Body=all_chunks_content
+            )
             
             # Generate Gmail-compatible static URL
             public_url = generate_public_url(BASE_URL, folder, filename)
-            file_size = final_path.stat().st_size
+            file_size = len(all_chunks_content)
             
             return jsonify({
                 "message": f"File successfully uploaded to /uploads/{folder}/{filename}",
@@ -922,39 +873,64 @@ def upload_multiple_chunks():
         filename = sanitize_filename(original_filename)
         
         try:
-            # Create temporary folder for chunks
-            base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
-            temp_folder = Path(base_folder) / "temp" / folder
-            temp_folder.mkdir(parents=True, exist_ok=True)
+            # For S3-only storage, handle chunk uploads similar to single chunk upload
+            # Validate chunk size
+            file.seek(0, os.SEEK_END)
+            chunk_size = file.tell()
+            file.seek(0)
             
-            # Save chunk
-            chunk_path = temp_folder / f"{filename}.part{chunk_index}"
-            file.save(str(chunk_path))
+            if chunk_size > MAX_CHUNK_SIZE:
+                errors.append(f"Chunk too large: {original_filename}")
+                continue
+            
+            # Read chunk content for validation
+            file_content = file.read()
+            
+            # Validate chunk content (only first chunk)
+            expected_mime = get_mime_type(filename)
+            if chunk_index == 0 and not validate_file_content(file_content, expected_mime):
+                errors.append(f"Invalid file content: {original_filename}")
+                continue
+            
+            # Store chunk in S3 temp location
+            temp_key = f"temp/{folder}/{filename}.part{chunk_index}"
+            
+            try:
+                s3_client.put_object(
+                    Bucket=STORAGE_BUCKET,
+                    Key=temp_key,
+                    Body=file_content
+                )
+            except Exception as s3_error:
+                errors.append(f"Failed to store chunk {original_filename}: {str(s3_error)}")
+                continue
             
             # Check if this is the last chunk for this file
             if chunk_index == total_chunks - 1:
-                # Combine all chunks
-                final_folder = Path(base_folder) / folder
-                final_folder.mkdir(parents=True, exist_ok=True)
-                final_path = final_folder / filename
+                # Combine all chunks from S3 temp location
+                all_chunks_content = b''
+                for i in range(total_chunks):
+                    chunk_key = f"temp/{folder}/{filename}.part{i}"
+                    try:
+                        chunk_obj = s3_client.get_object(Bucket=STORAGE_BUCKET, Key=chunk_key)
+                        all_chunks_content += chunk_obj['Body'].read()
+                        # Delete temporary chunk
+                        s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=chunk_key)
+                    except s3_client.exceptions.NoSuchKey:
+                        errors.append(f"Missing chunk {i} for {original_filename}")
+                        continue
                 
-                # Combine chunks into final file
-                with open(final_path, 'wb') as outfile:
-                    for i in range(total_chunks):
-                        chunk_file = temp_folder / f"{filename}.part{i}"
-                        if chunk_file.exists():
-                            with open(chunk_file, 'rb') as infile:
-                                outfile.write(infile.read())
-                            chunk_file.unlink()  # Remove chunk
-                
-                # Upload to S3 (if enabled)
-                if USE_S3 and s3_client:
-                    with open(final_path, 'rb') as final_file:
-                        s3_client.upload_fileobj(final_file, STORAGE_BUCKET, f"{folder}/{filename}")
+                # Upload combined file to final location
+                final_key = f"{folder}/{filename}"
+                s3_client.put_object(
+                    Bucket=STORAGE_BUCKET,
+                    Key=final_key,
+                    Body=all_chunks_content
+                )
                 
                 # Generate Gmail-compatible static URL
                 public_url = generate_public_url(BASE_URL, folder, filename)
-                file_size = final_path.stat().st_size
+                file_size = len(all_chunks_content)
                 
                 uploaded_files.append({
                     "filename": filename,
@@ -967,18 +943,6 @@ def upload_multiple_chunks():
         except Exception as e:
             errors.append(f"Failed to process {original_filename}: {str(e)}")
     
-    # Clean up temp folders if all files are complete
-    if uploaded_files:
-        try:
-            temp_folder = Path(base_folder) / "temp" / folder
-            if temp_folder.exists() and not any(temp_folder.iterdir()):
-                temp_folder.rmdir()
-                temp_base = Path(base_folder) / "temp"
-                if temp_base.exists():
-                    temp_base.rmdir()
-        except OSError:
-            pass
-    
     if uploaded_files:
         response_data = {
             "message": f"{len(uploaded_files)} file(s) uploaded successfully.",
@@ -990,16 +954,10 @@ def upload_multiple_chunks():
     
     if errors:
         response_data["errors"] = errors
-        response_data["total_errors"] = len(errors)
-    
-    return jsonify(response_data), 200
-
-
-# ---- Static File Serving (Gmail Compatible) ----
 @app.route("/uploads/<path:filepath>", methods=["GET"])
 @limiter.limit("100 per minute")
 def serve_static_file(filepath):
-    """Serve files directly from local storage with proper MIME types.
+    """Serve files directly from S3 storage with proper MIME types.
     
     This endpoint provides Gmail-compatible static URLs like:
     /uploads/folder/filename.ext
@@ -1007,6 +965,16 @@ def serve_static_file(filepath):
     start_time = time.time()
     
     try:
+        # S3 storage is mandatory - if we reach here, S3 client should be available
+        if not s3_client:
+            app_logger.error("S3 client not available for file serving", 
+                          filepath=filepath, 
+                          s3_client_available=s3_client is not None,
+                          client_ip=request.remote_addr)
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='500').inc()
+            return jsonify({"error": "S3 client not available - check configuration"}), 500
+        
         # Validate filepath structure and prevent path traversal
         if not filepath or '..' in filepath or '\\' in filepath:
             if USE_PROMETHEUS and prometheus_metrics:
@@ -1029,140 +997,96 @@ def serve_static_file(filepath):
                 prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
             return jsonify({"error": "Invalid folder or filename"}), 400
         
-        # Get safe file path with symlink validation
-        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
-        file_path = get_safe_file_path(base_folder, folder, filename)
-        if not file_path:
-            if USE_PROMETHEUS and prometheus_metrics:
-                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
-            return jsonify({"error": "Invalid folder or filename"}), 400
+        # S3 object key
+        s3_key = f"{folder}/{filename}"
+        
+        try:
+            # Get object metadata from S3
+            s3_object = s3_client.head_object(Bucket=STORAGE_BUCKET, Key=s3_key)
+            file_size = s3_object['ContentLength']
+            mime_type = get_mime_type(filename)
             
-        # Additional symlink validation
-        if file_path.is_symlink():
-            if USE_PROMETHEUS and prometheus_metrics:
-                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
-            return jsonify({"error": "Symlinks not allowed"}), 400
+            # Generate presigned URL for direct S3 access
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': STORAGE_BUCKET, 'Key': s3_key},
+                ExpiresIn=3600  # 1 hour
+            )
             
-        if not file_path.exists():
-            if USE_PROMETHEUS and prometheus_metrics:
-                prometheus_metrics['file_serve_requests_total'].labels(status='404').inc()
-            return jsonify({"error": "File not found"}), 404
-        
-        # Get file size and MIME type
-        file_size = file_path.stat().st_size
-        mime_type = get_mime_type(filename)
-        
-        # Limit range request size to prevent DoS
-        max_range_size = 50 * 1024 * 1024  # 50MB max range
-        
-        # Serve file with proper headers for Gmail compatibility
-        # Check for range request
-        range_header = request.headers.get('Range')
-        if range_header:
-            # Parse range header
-            try:
-                unit, ranges = range_header.split('=', 1)
-                if unit != 'bytes':
-                    if USE_PROMETHEUS and prometheus_metrics:
-                        prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
-                    return jsonify({"error": "Only byte ranges supported"}), 400
-                
-                start, end = ranges.split('-', 1)
-                start = int(start) if start else 0
-                end = int(end) if end else file_size - 1
-                
-                # Validate range
-                if start >= file_size or end >= file_size or start > end:
-                    if USE_PROMETHEUS and prometheus_metrics:
-                        prometheus_metrics['file_serve_requests_total'].labels(status='416').inc()
-                    return jsonify({"error": "Invalid range"}), 416
-                
-                # Limit range size to prevent DoS
-                if (end - start + 1) > max_range_size:
-                    if USE_PROMETHEUS and prometheus_metrics:
-                        prometheus_metrics['file_serve_requests_total'].labels(status='416').inc()
-                    return jsonify({"error": "Range too large"}), 416
-                
-                # Read partial content with locking
-                with open(file_path, 'rb') as f:
-                    portalocker.lock(f, portalocker.LOCK_SH)
-                    f.seek(start)
-                    content = f.read(end - start + 1)
-                    portalocker.unlock(f)
+            # For small files, serve directly from S3
+            if file_size <= 10 * 1024 * 1024:  # 10MB threshold
+                s3_response = s3_client.get_object(Bucket=STORAGE_BUCKET, Key=s3_key)
+                content = s3_response['Body'].read()
                 
                 response = Response(
                     content,
-                    206,  # Partial Content
+                    200,
                     mimetype=mime_type,
                     direct_passthrough=True
                 )
-                response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
-                response.headers['Accept-Ranges'] = 'bytes'
-                response.headers['Content-Length'] = str(len(content))
-                response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
-                response.headers['Cache-Control'] = 'public, max-age=31536000'
                 
-                # Log partial content serving
+                # Add Gmail-friendly headers
+                response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['Cache-Control'] = 'public, max-age=31536000'  # 1 year cache
+                response.headers['Content-Length'] = str(len(content))
+                
+                # Log successful file serving
                 duration = time.time() - start_time
-                app_logger.info("Partial file served", 
+                app_logger.info("File served successfully from S3", 
                               folder=folder, filename=filename,
-                              file_size=file_size, range_start=start, range_end=end,
-                              duration=duration, client_ip=request.remote_addr)
+                              file_size=file_size, duration=duration,
+                              backend='s3', client_ip=request.remote_addr)
                 
                 if USE_PROMETHEUS and prometheus_metrics:
-                    prometheus_metrics['file_serve_requests_total'].labels(status='206').inc()
+                    prometheus_metrics['file_serve_requests_total'].labels(status='200').inc()
+                
+                return response
+            else:
+                # For large files, redirect to presigned URL
+                response = Response(
+                    redirect(presigned_url, code=302),
+                    302
+                )
+                
+                # Log redirect
+                duration = time.time() - start_time
+                app_logger.info("File redirect to S3 presigned URL", 
+                              folder=folder, filename=filename,
+                              file_size=file_size, duration=duration,
+                              backend='s3', client_ip=request.remote_addr)
+                
+                if USE_PROMETHEUS and prometheus_metrics:
+                    prometheus_metrics['file_serve_requests_total'].labels(status='302').inc()
                 
                 return response
                 
-            except (ValueError, OSError):
-                # If range parsing fails, serve full file
-                pass
-        
-        # Read file content manually to ensure proper file handle management
-        with open(file_path, 'rb') as f:
-            content = f.read()
-        
-        response = Response(
-            content,
-            200,
-            mimetype=mime_type,
-            direct_passthrough=True
-        )
-        
-        # Add Gmail-friendly headers
-        response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
-        response.headers['Accept-Ranges'] = 'bytes'
-        response.headers['Cache-Control'] = 'public, max-age=31536000'  # 1 year cache
-        response.headers['Content-Length'] = str(len(content))
-        
-        # Log successful file serving
-        duration = time.time() - start_time
-        app_logger.info("File served successfully", 
-                      folder=folder, filename=filename,
-                      file_size=file_size, duration=duration,
-                      client_ip=request.remote_addr)
-        
-        # Update Prometheus metrics
-        if USE_PROMETHEUS and prometheus_metrics:
-            prometheus_metrics['file_serve_requests_total'].labels(status='200').inc()
-        
-        return response
+        except s3_client.exceptions.NoSuchKey:
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='404').inc()
+            return jsonify({"error": "File not found"}), 404
+        except Exception as s3_error:
+            app_logger.error("S3 file serving failed", 
+                          folder=folder, filename=filename,
+                          error=str(s3_error), backend='s3',
+                          client_ip=request.remote_addr)
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='500').inc()
+            return jsonify({"error": f"Failed to serve file: {str(s3_error)}"}), 500
         
     except Exception as e:
-        app_logger.error("Error serving file", 
+        app_logger.error("File serving failed", 
                       filepath=filepath, error=str(e), 
                       traceback=traceback.format_exc(),
                       client_ip=request.remote_addr)
         if USE_PROMETHEUS and prometheus_metrics:
             prometheus_metrics['file_serve_requests_total'].labels(status='500').inc()
-        return jsonify({"error": f"Error serving file: {str(e)}"}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
-# ---- Legacy Render Endpoint (Backward Compatibility) ----
 @file_uploader.route("/render/<token>", methods=["GET"])
+@limiter.limit("20 per minute")
 def render_file(token):
-    """Legacy render endpoint for backward compatibility.
-    
-    Returns redirect to the new static URL.
+    """Returns redirect to new static URL.
     """
     key = decrypt_key(token)
     if not key:
@@ -1190,8 +1114,17 @@ def render_file(token):
 @file_uploader.route("/delete/<token>", methods=["DELETE"])
 @limiter.limit("50 per minute")
 def delete_file(token):
-    """Delete a file from both local storage and S3."""
+    """Delete a file from S3 storage."""
     start_time = time.time()
+    
+    # S3 storage is mandatory - if we reach here, S3 client should be available
+    if not s3_client:
+        app_logger.error("S3 client not available for file deletion", 
+                        s3_client_available=s3_client is not None,
+                        client_ip=request.remote_addr)
+        if USE_PROMETHEUS and prometheus_metrics:
+            prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='500').inc()
+        return jsonify({"error": "S3 client not available - check configuration"}), 500
     
     key = decrypt_key(token)
     if not key:
@@ -1221,39 +1154,21 @@ def delete_file(token):
                 prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
             return jsonify({"error": "Nested folders not supported"}), 400
         
-        # Delete from local storage
-        base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
-        file_path = get_safe_file_path(base_folder, folder, filename)
+        # Get file size from S3 before deletion
         file_size = 0
-        if file_path and file_path.exists():
-            file_size = file_path.stat().st_size
-            file_path.unlink()
-            
-            # Try to remove folder if empty
-            try:
-                folder_path = file_path.parent
-                if folder_path.exists() and not any(folder_path.iterdir()):
-                    folder_path.rmdir()
-            except OSError:
-                pass  # Folder not empty or other error
+        try:
+            s3_object = s3_client.head_object(Bucket=STORAGE_BUCKET, Key=key)
+            file_size = s3_object['ContentLength']
+        except s3_client.exceptions.NoSuchKey:
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='404').inc()
+            return jsonify({"error": "File not found"}), 404
         
-        # Delete from S3 (if enabled)
-        if USE_S3 and s3_client:
-            try:
-                s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
-                app_logger.info("File deleted from S3", 
-                             folder=folder, filename=filename, 
-                             backend='s3', client_ip=request.remote_addr)
-            except Exception as s3_error:
-                app_logger.error("S3 deletion failed", 
-                              folder=folder, filename=filename,
-                              error=str(s3_error), backend='s3',
-                              client_ip=request.remote_addr)
-                # If S3 deletion fails, still consider it a success if local deletion worked
-                # but return the error for debugging
-                if USE_PROMETHEUS and prometheus_metrics:
-                    prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='500').inc()
-                return jsonify({"error": f"Delete failed: {str(s3_error)}"}), 500
+        # Delete from S3
+        s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=key)
+        app_logger.info("File deleted from S3", 
+                     folder=folder, filename=filename, 
+                     backend='s3', client_ip=request.remote_addr)
         
         duration = time.time() - start_time
         
@@ -1261,7 +1176,7 @@ def delete_file(token):
         app_logger.info("File deleted successfully", 
                       folder=folder, filename=filename,
                       file_size=file_size, duration=duration,
-                      backend='local', client_ip=request.remote_addr)
+                      backend='s3', client_ip=request.remote_addr)
         
         # Update Prometheus metrics
         if USE_PROMETHEUS and prometheus_metrics:
@@ -1308,7 +1223,7 @@ def health_check():
     # Force re-reading of environment variables
     current_use_prometheus = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
     current_use_loki = os.getenv("USE_LOKI", "false").lower() == "true"
-    current_use_s3 = os.getenv("USE_S3", "false").lower() == "true"
+    current_s3_enabled = True  # S3 is now mandatory
     
     health_status = {
         "status": "healthy",
@@ -1316,7 +1231,7 @@ def health_check():
         "observability": {
             "prometheus_enabled": current_use_prometheus,
             "loki_enabled": current_use_loki,
-            "s3_enabled": current_use_s3
+            "s3_enabled": current_s3_enabled
         }
     }
     return jsonify(health_status)
