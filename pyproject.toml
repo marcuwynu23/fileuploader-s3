@@ -13,7 +13,6 @@ dependencies = [
     "botocore>=1.40.34",
     "markdown>=3.9",
     "waitress>=3.0.2",
-    "cryptography>=46.0.1",
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
