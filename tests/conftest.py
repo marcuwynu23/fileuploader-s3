@@ -22,7 +22,9 @@ os.environ.update({
     'STORAGE_ACCESS_KEY': 'test-access-key',
     'STORAGE_SECRET_KEY': 'test-secret-key',
     'STORAGE_BUCKET': 'test-bucket',
-    'USE_S3': 'false'  # Disable S3 for testing to avoid OpenSSL dependency
+    'USE_S3': 'false',  # Disable S3 for testing to avoid OpenSSL dependency
+    'USE_PROMETHEUS': 'True',  # Enable Prometheus for observability test
+    'TESTING': 'true'  # Enable test mode for higher rate limits
 })
 
 @pytest.fixture
@@ -39,11 +41,16 @@ def mock_s3_dependencies():
     }
     mock_boto3.client.return_value = mock_client
     
+    # Mock magic library to avoid import issues
+    mock_magic = Mock()
+    mock_magic.from_buffer.return_value = 'image/png'
+    
     with patch.dict('sys.modules', {
         'boto3': mock_boto3,
         'botocore': Mock(),
         'botocore.client': Mock(),
         'urllib3': Mock(),
+        'magic': mock_magic,
     }):
         yield mock_boto3
 
@@ -51,13 +58,17 @@ def mock_s3_dependencies():
 def client(mock_s3_dependencies):
     """Create a test client for the Flask application."""
     # Import after mocking (environment variables already set above)
-    from src.fileuploader_s3.main import app
+    from src.fileuploader_s3.main import app, limiter
     
     app.config['TESTING'] = True
     app.config['WTF_CSRF_ENABLED'] = False
     
+    # Reset rate limiter for test isolation
+    limiter.reset()
+    
     with app.test_client() as client:
-        yield client
+        with app.app_context():
+            yield client
 
 @pytest.fixture
 def temp_upload_dir():

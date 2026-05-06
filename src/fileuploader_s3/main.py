@@ -3,6 +3,9 @@ import os
 import logging
 import json
 import time
+import hashlib
+import secrets
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 from flask_cors import CORS
@@ -12,9 +15,22 @@ import mimetypes
 import traceback
 from collections import defaultdict, deque
 from threading import Lock
-# Security functions now implemented inline to avoid OpenSSL dependencies
-import re
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
+import portalocker
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Cross-platform file content validation
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except ImportError:
+    MAGIC_AVAILABLE = False
+    print("Warning: python-magic not available. Using basic file validation.")
+    print("To install magic on Windows: pip install python-magic-bin")
 
 # Optional observability support
 USE_PROMETHEUS = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
@@ -55,6 +71,63 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 file_uploader = Blueprint("file_uploader", __name__)
+
+# ---- Security Headers ----
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses."""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none';"
+    return response
+
+# ---- Rate Limiting Configuration ----
+def get_rate_limits():
+    """Get rate limits based on environment."""
+    # Bypass rate limiting in development mode
+    if os.getenv('FLASK_DEBUG', 'false').lower() == 'true':
+        return ["10000 per minute", "100000 per hour"]  # Very high limits for development
+    
+    if os.getenv('TESTING', 'false').lower() == 'true':
+        return ["1000 per minute", "10000 per hour"]  # Much higher limits for testing
+    else:
+        return ["100 per minute", "1000 per hour"]
+
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=get_rate_limits()
+)
+
+# ---- Encryption Setup ----
+def get_encryption_key():
+    """Generate or retrieve encryption key using PBKDF2."""
+    secret_key = os.getenv("ENCRYPTION_KEY")
+    if not secret_key:
+        # Generate a random key if none provided
+        secret_key = secrets.token_urlsafe(32)
+        print(f"Warning: No ENCRYPTION_KEY provided. Generated key: {secret_key}")
+    
+    # Use PBKDF2 to derive a proper encryption key
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'fileuploader_salt',  # In production, use a random salt per deployment
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(secret_key.encode()))
+    return key
+
+# Initialize encryption
+try:
+    encryption_key = get_encryption_key()
+    cipher_suite = Fernet(encryption_key)
+except Exception as e:
+    print(f"Warning: Failed to initialize encryption: {e}")
+    cipher_suite = None
 
 # ---- Observability Configuration ----
 class StructuredLogger:
@@ -172,7 +245,19 @@ ALLOWED_MIME_TYPES = {
     '.gz': 'application/gzip',
 }
 
+# Magic number signatures for content validation
+MAGIC_SIGNATURES = {
+    'image/png': b'\x89PNG\r\n\x1a\n',
+    'image/jpeg': b'\xff\xd8\xff',
+    'image/gif': b'GIF87a',
+    'image/gif': b'GIF89a',
+    'application/pdf': b'%PDF-',
+    'application/zip': b'PK\x03\x04',
+}
+
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_CHUNK_SIZE = 10 * 1024 * 1024  # 10MB per chunk
+MAX_CHUNKS_PER_FILE = 100  # Maximum chunks per file
 
 BLOCKED_PATTERNS = [
     r'\.\./',  # Parent directory traversal
@@ -182,6 +267,13 @@ BLOCKED_PATTERNS = [
     r'^/',  # Absolute paths
     r'^\\',  # Windows absolute paths
 ]
+
+# Windows reserved names
+WINDOWS_RESERVED_NAMES = {
+    'CON', 'PRN', 'AUX', 'NUL',
+    'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+    'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+}
 
 # ---- Security Functions ----
 def validate_folder_name(folder: str) -> bool:
@@ -209,7 +301,73 @@ def validate_filename(filename: str) -> bool:
     invalid_chars = r'[<>:"|?*\x00-\x1f]'
     if re.search(invalid_chars, filename):
         return False
+    
+    # Check for Windows reserved names
+    name_without_ext = Path(filename).stem.upper()
+    if name_without_ext in WINDOWS_RESERVED_NAMES:
+        return False
+    
+    # Check for filenames ending with dots or spaces (Windows issue)
+    if filename.endswith('.') or filename.endswith(' '):
+        return False
+    
     return True
+
+def validate_file_content(file_data: bytes, expected_mime: str) -> bool:
+    """Validate file content using magic numbers to prevent RCE."""
+    try:
+        if MAGIC_AVAILABLE:
+            # Use python-magic for content validation
+            detected_mime = magic.from_buffer(file_data, mime=True)
+            
+            # Allow exact match or common variations
+            allowed_variants = {
+                'image/jpeg': ['image/jpeg', 'image/pjpeg'],
+                'image/png': ['image/png'],
+                'image/gif': ['image/gif'],
+                'application/pdf': ['application/pdf'],
+                'application/zip': ['application/zip', 'application/x-zip-compressed'],
+            }
+            
+            if expected_mime in allowed_variants:
+                return detected_mime in allowed_variants[expected_mime]
+            
+            # For other types, check exact match
+            return detected_mime == expected_mime
+        else:
+            # Fallback to basic signature check when magic is not available
+            if expected_mime in MAGIC_SIGNATURES:
+                signature = MAGIC_SIGNATURES[expected_mime]
+                return file_data.startswith(signature)
+            
+            # Additional basic validation for common types
+            if expected_mime.startswith('image/'):
+                # Basic image validation - check for common image signatures
+                image_signatures = [
+                    b'\xff\xd8\xff',  # JPEG
+                    b'\x89PNG\r\n\x1a\n',  # PNG
+                    b'GIF87a',  # GIF87a
+                    b'GIF89a',  # GIF89a
+                    b'RIFF',  # WEBP/AVI
+                    b'\x00\x00\x01\x00',  # ICO
+                ]
+                return any(file_data.startswith(sig) for sig in image_signatures)
+            
+            elif expected_mime == 'application/pdf':
+                return file_data.startswith(b'%PDF-')
+            
+            elif expected_mime in ['application/zip', 'application/x-zip-compressed']:
+                return file_data.startswith(b'PK\x03\x04') or file_data.startswith(b'PK\x05\x06')
+            
+            # Allow unknown types if we can't validate
+            return True
+            
+    except Exception:
+        # If all validation fails, fall back to basic signature check
+        if expected_mime in MAGIC_SIGNATURES:
+            signature = MAGIC_SIGNATURES[expected_mime]
+            return file_data.startswith(signature)
+        return True  # Allow if we can't validate
 
 def get_safe_file_path(base_folder: str, folder: str, filename: str):
     """Create a safe file path preventing path traversal attacks."""
@@ -253,28 +411,42 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 def encrypt_key(folder: str, filename: str) -> str:
-    """Simple XOR encryption for basic obfuscation."""
-    SECRET_KEY = os.getenv("ENCRYPTION_KEY", "default_key")
-    raw = f"{folder}/{filename}"
-    result = []
-    key_bytes = SECRET_KEY.encode()
-    for i, char in enumerate(raw):
-        result.append(chr(ord(char) ^ key_bytes[i % len(key_bytes)]))
-    encrypted = ''.join(result)
-    return base64.b64encode(encrypted.encode()).decode()
+    """Encrypt file key using AES encryption."""
+    if not cipher_suite:
+        # Fallback to base64 encoding if encryption fails
+        raw = f"{folder}/{filename}"
+        return base64.urlsafe_b64encode(raw.encode()).decode()
+    
+    try:
+        raw = f"{folder}/{filename}"
+        encrypted = cipher_suite.encrypt(raw.encode())
+        return base64.urlsafe_b64encode(encrypted).decode()
+    except Exception:
+        # Fallback to base64 encoding
+        raw = f"{folder}/{filename}"
+        return base64.urlsafe_b64encode(raw.encode()).decode()
 
 def decrypt_key(token: str):
-    """Decrypt token using XOR and base64 decoding."""
+    """Decrypt token using AES encryption."""
+    if not cipher_suite:
+        # Fallback to base64 decoding if encryption fails
+        try:
+            decoded = base64.urlsafe_b64decode(token.encode()).decode()
+            return decoded
+        except Exception:
+            return None
+    
     try:
-        SECRET_KEY = os.getenv("ENCRYPTION_KEY", "default_key")
-        decoded = base64.b64decode(token.encode()).decode()
-        result = []
-        key_bytes = SECRET_KEY.encode()
-        for i, char in enumerate(decoded):
-            result.append(chr(ord(char) ^ key_bytes[i % len(key_bytes)]))
-        return ''.join(result)
+        decoded = base64.urlsafe_b64decode(token.encode())
+        decrypted = cipher_suite.decrypt(decoded).decode()
+        return decrypted
     except Exception:
-        return None
+        # Try fallback to base64 decoding
+        try:
+            decoded = base64.urlsafe_b64decode(token.encode()).decode()
+            return decoded
+        except Exception:
+            return None
 
 # S3/MinIO Configuration
 STORAGE_ENDPOINT = os.getenv("STORAGE_ENDPOINT", "http://localhost:9000")
@@ -314,7 +486,7 @@ def create_folder_if_not_exists(folder_path: Path) -> bool:
         return False
 
 def save_file_locally(file, folder: str, filename: str, base_folder: str = None) -> tuple[bool, str]:
-    """Save file to local storage for static serving."""
+    """Save file to local storage with proper locking and validation."""
     try:
         if base_folder is None:
             base_folder = BASE_FOLDER
@@ -323,8 +495,27 @@ def save_file_locally(file, folder: str, filename: str, base_folder: str = None)
             return False, "Failed to create folder"
             
         file_path = folder_path / filename
-        file.save(str(file_path))
-        # Ensure file handle is closed to prevent Windows file locking issues
+        
+        # Read file content for validation
+        file.seek(0)
+        file_content = file.read(MAX_FILE_SIZE + 1)  # Read slightly more to check size
+        
+        # Validate file size
+        if len(file_content) > MAX_FILE_SIZE:
+            return False, f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"
+        
+        # Validate file content
+        expected_mime = get_mime_type(filename)
+        if not validate_file_content(file_content, expected_mime):
+            return False, f"File content does not match expected type: {expected_mime}"
+        
+        # Write file with locking
+        with open(file_path, 'wb') as f:
+            portalocker.lock(f, portalocker.LOCK_EX)
+            f.write(file_content)
+            portalocker.unlock(f)
+        
+        # Ensure file handle is closed
         file.close()
         return True, str(file_path)
     except Exception as e:
@@ -355,6 +546,7 @@ def initial_render():
 
 # ---- Upload Single ----
 @file_uploader.route("/upload", methods=["POST"])
+@limiter.limit("10 per minute")
 def upload_file():
     """Upload a single file and return Gmail-compatible static URL."""
     start_time = time.time()
@@ -474,6 +666,7 @@ def upload_file():
 
 # ---- Upload Multiple ----
 @file_uploader.route("/upload_multi", methods=["POST"])
+@limiter.limit("20 per minute")
 def upload_multiple_files():
     """Upload multiple files and return Gmail-compatible static URLs."""
     folder = request.form.get("folder")
@@ -557,6 +750,7 @@ def upload_multiple_files():
 
 # ---- Upload Single File in Chunks ----
 @file_uploader.route("/upload_chunk", methods=["POST"])
+@limiter.limit("20 per minute")
 def upload_chunk():
     """Upload a file in chunks and return Gmail-compatible static URL."""
     folder = request.form.get("folder")
@@ -567,8 +761,16 @@ def upload_chunk():
     if not file or not hasattr(file, 'filename') or file.filename == "":
         return jsonify({"error": "No file provided"}), 400
 
-    chunk_index = int(request.form.get("dzchunkindex", 0))
-    total_chunks = int(request.form.get("dztotalchunkcount", 1))
+    # Validate chunk parameters
+    try:
+        chunk_index = int(request.form.get("dzchunkindex", 0))
+        total_chunks = int(request.form.get("dztotalchunkcount", 1))
+    except ValueError:
+        return jsonify({"error": "Invalid chunk parameters"}), 400
+    
+    # Validate chunk limits
+    if chunk_index < 0 or total_chunks <= 0 or total_chunks > MAX_CHUNKS_PER_FILE:
+        return jsonify({"error": "Invalid chunk count or index"}), 400
     
     # Validate and sanitize filename
     original_filename = file.filename
@@ -581,14 +783,36 @@ def upload_chunk():
     filename = sanitize_filename(original_filename)
     
     try:
-        # Create temporary folder for chunks
+        # Create temporary folder for chunks with locking
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
         temp_folder = Path(base_folder) / "temp" / folder
         temp_folder.mkdir(parents=True, exist_ok=True)
         
-        # Save chunk
-        chunk_path = temp_folder / f"{filename}.part{chunk_index}"
-        file.save(str(chunk_path))
+        # Use unique filename to prevent conflicts
+        chunk_filename = f"{filename}.part{chunk_index}"
+        chunk_path = temp_folder / chunk_filename
+        
+        # Validate chunk size
+        file.seek(0, os.SEEK_END)
+        chunk_size = file.tell()
+        file.seek(0)
+        
+        if chunk_size > MAX_CHUNK_SIZE:
+            return jsonify({"error": f"Chunk too large. Maximum size: {MAX_CHUNK_SIZE // (1024*1024)}MB"}), 400
+        
+        # Save chunk with locking
+        with open(chunk_path, 'wb') as f:
+            portalocker.lock(f, portalocker.LOCK_EX)
+            file_content = file.read()
+            
+            # Validate chunk content
+            expected_mime = get_mime_type(filename)
+            if chunk_index == 0 and not validate_file_content(file_content, expected_mime):
+                portalocker.unlock(f)
+                return jsonify({"error": f"File content does not match expected type: {expected_mime}"}), 400
+            
+            f.write(file_content)
+            portalocker.unlock(f)
         
         # Check if this is the last chunk
         if chunk_index == total_chunks - 1:
@@ -597,14 +821,32 @@ def upload_chunk():
             final_folder.mkdir(parents=True, exist_ok=True)
             final_path = final_folder / filename
             
-            # Combine chunks into final file
+            # Combine chunks into final file with proper locking
             with open(final_path, 'wb') as outfile:
+                portalocker.lock(outfile, portalocker.LOCK_EX)
+                
+                # Verify all chunks exist before combining
+                missing_chunks = []
+                for i in range(total_chunks):
+                    chunk_file = temp_folder / f"{filename}.part{i}"
+                    if not chunk_file.exists():
+                        missing_chunks.append(i)
+                
+                if missing_chunks:
+                    portalocker.unlock(outfile)
+                    return jsonify({"error": f"Missing chunks: {missing_chunks}"}), 400
+                
+                # Combine all chunks
                 for i in range(total_chunks):
                     chunk_file = temp_folder / f"{filename}.part{i}"
                     if chunk_file.exists():
                         with open(chunk_file, 'rb') as infile:
+                            portalocker.lock(infile, portalocker.LOCK_SH)
                             outfile.write(infile.read())
+                            portalocker.unlock(infile)
                         chunk_file.unlink()  # Remove chunk
+                
+                portalocker.unlock(outfile)
             
             # Remove temp folder if empty
             try:
@@ -647,6 +889,7 @@ def upload_chunk():
 
 # ---- Upload Multiple Files in Chunks ----
 @file_uploader.route("/upload_multi_chunk", methods=["POST"])
+@limiter.limit("30 per minute")
 def upload_multiple_chunks():
     """Upload multiple files in chunks and return Gmail-compatible static URLs."""
     folder = request.form.get("folder")
@@ -754,6 +997,7 @@ def upload_multiple_chunks():
 
 # ---- Static File Serving (Gmail Compatible) ----
 @app.route("/uploads/<path:filepath>", methods=["GET"])
+@limiter.limit("100 per minute")
 def serve_static_file(filepath):
     """Serve files directly from local storage with proper MIME types.
     
@@ -763,29 +1007,42 @@ def serve_static_file(filepath):
     start_time = time.time()
     
     try:
-        # Split filepath into folder and filename
-        # Allow nested folders for static serving
-        path_parts = filepath.rsplit('/', 1)
-        if len(path_parts) != 2:
+        # Validate filepath structure and prevent path traversal
+        if not filepath or '..' in filepath or '\\' in filepath:
             if USE_PROMETHEUS and prometheus_metrics:
                 prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
             return jsonify({"error": "Invalid file path"}), 400
-            
-        folder, filename = path_parts
         
-        # For nested folders, validate the entire path structure
-        if not validate_folder_name(folder):
+        # Split filepath into components and validate each
+        path_parts = filepath.split('/')
+        if len(path_parts) < 2:
             if USE_PROMETHEUS and prometheus_metrics:
                 prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
-            return jsonify({"error": "Invalid folder path"}), 400
+            return jsonify({"error": "Invalid file path format"}), 400
         
-        # Get safe file path
+        folder = '/'.join(path_parts[:-1])  # Support nested folders
+        filename = path_parts[-1]
+        
+        # Validate folder and filename separately
+        if not validate_folder_name(folder) or not validate_filename(filename):
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
+            return jsonify({"error": "Invalid folder or filename"}), 400
+        
+        # Get safe file path with symlink validation
         base_folder = os.getenv('BASE_FOLDER', BASE_FOLDER)
         file_path = get_safe_file_path(base_folder, folder, filename)
         if not file_path:
             if USE_PROMETHEUS and prometheus_metrics:
                 prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
             return jsonify({"error": "Invalid folder or filename"}), 400
+            
+        # Additional symlink validation
+        if file_path.is_symlink():
+            if USE_PROMETHEUS and prometheus_metrics:
+                prometheus_metrics['file_serve_requests_total'].labels(status='400').inc()
+            return jsonify({"error": "Symlinks not allowed"}), 400
+            
         if not file_path.exists():
             if USE_PROMETHEUS and prometheus_metrics:
                 prometheus_metrics['file_serve_requests_total'].labels(status='404').inc()
@@ -794,6 +1051,9 @@ def serve_static_file(filepath):
         # Get file size and MIME type
         file_size = file_path.stat().st_size
         mime_type = get_mime_type(filename)
+        
+        # Limit range request size to prevent DoS
+        max_range_size = 50 * 1024 * 1024  # 50MB max range
         
         # Serve file with proper headers for Gmail compatibility
         # Check for range request
@@ -817,10 +1077,18 @@ def serve_static_file(filepath):
                         prometheus_metrics['file_serve_requests_total'].labels(status='416').inc()
                     return jsonify({"error": "Invalid range"}), 416
                 
-                # Read partial content
+                # Limit range size to prevent DoS
+                if (end - start + 1) > max_range_size:
+                    if USE_PROMETHEUS and prometheus_metrics:
+                        prometheus_metrics['file_serve_requests_total'].labels(status='416').inc()
+                    return jsonify({"error": "Range too large"}), 416
+                
+                # Read partial content with locking
                 with open(file_path, 'rb') as f:
+                    portalocker.lock(f, portalocker.LOCK_SH)
                     f.seek(start)
                     content = f.read(end - start + 1)
+                    portalocker.unlock(f)
                 
                 response = Response(
                     content,
@@ -920,6 +1188,7 @@ def render_file(token):
         return jsonify({"error": f"Error processing file: {str(e)}"}), 500
 
 @file_uploader.route("/delete/<token>", methods=["DELETE"])
+@limiter.limit("50 per minute")
 def delete_file(token):
     """Delete a file from both local storage and S3."""
     start_time = time.time()
@@ -1019,7 +1288,10 @@ def delete_file(token):
 # ---- Prometheus Metrics Endpoint ----
 @app.route("/metrics")
 def metrics():
-    """Prometheus metrics endpoint - always available in production."""
+    """Prometheus metrics endpoint - only available when enabled."""
+    if not USE_PROMETHEUS:
+        return jsonify({"error": "Prometheus metrics disabled"}), 404
+    
     try:
         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
         return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
@@ -1033,6 +1305,7 @@ def metrics():
 def health_check():
     """Health check endpoint with observability status."""
     # Check environment variables dynamically to allow runtime changes
+    # Force re-reading of environment variables
     current_use_prometheus = os.getenv("USE_PROMETHEUS", "false").lower() == "true"
     current_use_loki = os.getenv("USE_LOKI", "false").lower() == "true"
     current_use_s3 = os.getenv("USE_S3", "false").lower() == "true"
