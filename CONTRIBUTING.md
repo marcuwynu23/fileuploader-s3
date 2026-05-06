@@ -33,7 +33,7 @@ We welcome contributions of all kinds: bug fixes, features, documentation, and s
 
 - Python **3.10+**
 - [UV](https://docs.astral.sh/uv/) (fast Python package manager)
-- An **S3-compatible storage** (e.g. MinIO, AWS S3, Ceph)
+- A **bucket storage** (e.g. MinIO, AWS S3, Ceph)
 
 ---
 
@@ -96,7 +96,7 @@ BASE_URL=https://yourdomain.com              # Your domain
 ROUTE_PREFIX=/api/bcloud/fileuploader        # API route prefix
 BASE_FOLDER=uploads                          # Local storage folder
 
-# Storage (S3 / MinIO / Compatible)
+# Storage (Bucket Storage)
 STORAGE_ENDPOINT=https://s3.amazonaws.com    # e.g. http://minio.example.com or https://s3.amazonaws.com
 STORAGE_ACCESS_KEY=your_access_key           # your MinIO/S3 access key
 STORAGE_SECRET_KEY=your_secret_key           # your MinIO/S3 secret key
@@ -223,7 +223,7 @@ https://yourdomain.com/uploads/folder/filename.ext
 
 - Python 3.10+
 - UV package manager
-- An S3-compatible storage (e.g., MinIO for local development)
+- A bucket storage (e.g., MinIO for local development)
 
 ### Installation Steps
 
@@ -263,7 +263,15 @@ STORAGE_BUCKET=fileuploads
 ENCRYPTION_KEY=your-generated-key-here
 ```
 
-4. (Optional) Run local MinIO with Docker:
+4. (Optional) Run local services with Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+This will start both MinIO and the fileuploader development service with hot-reloading enabled.
+
+Or run MinIO alone with Docker:
 
 ```bash
 docker run -d \
@@ -274,7 +282,7 @@ docker run -d \
   minio/minio server /data --console-address ":9001"
 ```
 
-5. Run the development server:
+5. Run the development server (if not using Docker Compose):
 
 ```bash
 uv run app
@@ -294,7 +302,7 @@ fileuploader-s3/
 │       ├── main.py          # Application entry point
 │       ├── config.py        # Configuration management
 │       ├── routes.py        # API routes definitions
-│       ├── storage.py       # S3/MinIO storage operations
+│       ├── storage.py       # Bucket storage operations
 │       ├── security.py      # Security utilities and validation
 │       ├── utils.py         # Helper functions
 │       └── logging_config.py # Logging configuration
@@ -421,7 +429,7 @@ We follow the **Conventional Commits** specification.
 feat(upload): add chunked upload support
 fix(security): improve path traversal validation
 docs(readme): update installation instructions
-refactor(storage): simplify S3 client initialization
+refactor(storage): simplify bucket storage client initialization
 ```
 
 ---
@@ -503,7 +511,7 @@ uv run waitress-serve --host=0.0.0.0 --port=2424 --call fileuploader_s3.main:app
 - **Flask** (API framework)
 - **UV** (fast Python package manager)
 - **cryptography.Fernet** (AES-128 encryption for legacy tokens)
-- **boto3** (S3/MinIO client)
+- **boto3** (Bucket storage client)
 - **Waitress** (production WSGI server)
 
 ---
