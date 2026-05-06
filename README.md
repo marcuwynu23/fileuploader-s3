@@ -6,7 +6,7 @@
 
 </div>
 
-A secure web service for uploading files to bucket storage (MinIO, AWS S3, Cloudflare R2, etc.).
+A web service for uploading files to bucket storage (MinIO, AWS S3, Cloudflare R2, etc.).
 
 ---
 
