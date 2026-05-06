@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # MinIO (local S3 alternative for development)
+  minio:
+    image: minio/minio:latest
+    container_name: fileuploader-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Fileuploader S3 Development Service
+  fileuploader-dev:
+    build:
+      context: .
+      target: development
+    container_name: fileuploader-dev
+    ports:
+      - "2424:2424"
+    environment:
+      BASE_URL: http://localhost:2424
+      ROUTE_PREFIX: /api/fileuploader
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_ACCESS_KEY: admin
+      STORAGE_SECRET_KEY: admin123
+      STORAGE_BUCKET: fileuploads
+      FLASK_DEBUG: "true"
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ./templates:/app/templates
+
+  # Fileuploader S3 Production Service
+  fileuploader-prod:
+    build:
+      context: .
+      target: production
+    container_name: fileuploader-prod
+    ports:
+      - "2425:2424"
+    environment:
+      BASE_URL: http://localhost:2425
+      ROUTE_PREFIX: /api/fileuploader
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-admin}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-admin123}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-fileuploads}
+      FLASK_DEBUG: "false"
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  minio-data:
