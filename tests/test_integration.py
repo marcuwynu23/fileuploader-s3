@@ -210,12 +210,21 @@ class TestEndToEndWorkflows:
         folder = 'chunk_test'
         filename = 'large_image.png'
         
-        # Simulate chunk upload
-        chunks = [
-            (io.BytesIO(b'chunk1_data'), 'large_image.png', 'image/png'),
-            (io.BytesIO(b'chunk2_data'), 'large_image.png', 'image/png'),
-            (io.BytesIO(b'chunk3_data'), 'large_image.png', 'image/png')
-        ]
+        # Simulate chunk upload with valid PNG data
+        # Create a larger PNG with proper structure that can be split into chunks
+        png_header = b'\x89PNG\r\n\x1a\n'  # PNG signature
+        ihdr_chunk = b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde'  # IHDR chunk
+        idat_chunk = b'\x00\x00\x0cIDATx\x9cc\xf8\x00\x00\x00\x01\x00\x01' + b'x' * 1000  # IDAT chunk with padding
+        iend_chunk = b'IEND\xaeB`\x82'  # IEND chunk
+        
+        png_data = png_header + ihdr_chunk + idat_chunk + iend_chunk
+        
+        # Create chunks with reasonable sizes
+        chunk_size = 400
+        chunks = []
+        for i in range(0, len(png_data), chunk_size):
+            chunk_data = png_data[i:i + chunk_size]
+            chunks.append((io.BytesIO(chunk_data), 'large_image.png', 'image/png'))
         
         with patch('src.fileuploader_s3.main.s3_client') as mock_s3:
             mock_s3.upload_fileobj.return_value = None
@@ -237,6 +246,9 @@ class TestEndToEndWorkflows:
                 
                 if i < len(chunks) - 1:
                     # Partial chunk
+                    if response.status_code != 200:
+                        print(f"Chunk {i} failed with status {response.status_code}")
+                        print(f"Response data: {response.data.decode()}")
                     assert response.status_code == 200
                     response_data = json.loads(response.data)
                     assert 'Chunk' in response_data['message']

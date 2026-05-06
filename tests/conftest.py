@@ -85,19 +85,26 @@ def sample_image_file():
         b'\x0b\x13\x01\x00\x9a\x9c\x18\x00\x00\x00\nIDATx\x9cc\xf8\x00\x00\x00'
         b'\x01\x00\x01\x00\x00\x00\x00IEND\xaeB`\x82'
     )
-    return io.BytesIO(png_data)
+    # Create a fresh BytesIO object for each test
+    file_obj = io.BytesIO(png_data)
+    file_obj.seek(0)  # Ensure file pointer is at start
+    return file_obj
 
 @pytest.fixture
 def sample_pdf_file():
     """Create a sample PDF file for testing."""
     pdf_data = b'%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n'
-    return io.BytesIO(pdf_data)
+    file_obj = io.BytesIO(pdf_data)
+    file_obj.seek(0)  # Ensure file pointer is at start
+    return file_obj
 
 @pytest.fixture
 def sample_text_file():
     """Create a sample text file for testing."""
     text_data = b'This is a test file content.\nLine 2 of the file.\n'
-    return io.BytesIO(text_data)
+    file_obj = io.BytesIO(text_data)
+    file_obj.seek(0)  # Ensure file pointer is at start
+    return file_obj
 
 @pytest.fixture
 def mock_s3_client():
