@@ -1,0 +1,97 @@
+# ---------------------------------------------------
+# Promtail Configuration
+# ---------------------------------------------------
+# Promtail is responsible for:
+# - Reading log files
+# - Parsing log structure
+# - Sending logs to Loki
+# ---------------------------------------------------
+
+server:
+  # Promtail internal HTTP server (metrics/debugging)
+  http_listen_port: 9080
+
+  # gRPC disabled (not required for Loki push model)
+  grpc_listen_port: 0
+
+# ---------------------------------------------------
+# Position Tracking
+# ---------------------------------------------------
+# Stores last read offset for each log file
+# Prevents duplicate log ingestion after restart
+positions:
+  filename: /tmp/positions.yaml
+
+# ---------------------------------------------------
+# Loki Client Configuration
+# ---------------------------------------------------
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+# ---------------------------------------------------
+# Log Scraping Configuration
+# ---------------------------------------------------
+scrape_configs:
+
+  - job_name: fileuploader-logs
+
+    static_configs:
+      - targets: [localhost]
+
+        labels:
+          # Logical grouping of logs in Loki
+          job: fileuploader-logs
+          app: fileuploader
+
+          # Log file path pattern - matches fileuploader.log location in /app
+          __path__: /app/fileuploader.log
+
+    # ---------------------------------------------------
+    # Log Parsing Pipeline for Flask FileUploader
+    # ---------------------------------------------------
+    pipeline_stages:
+
+      # Parse top-level JSON log from StructuredLogger
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+
+      # The message field contains nested JSON - parse it for detailed fields
+      - json:
+          source: message
+          expressions:
+            msg: message
+            client_ip: client_ip
+            folder: folder
+            file_name: file_name
+            file_size: file_size
+            backend: backend
+            bucket: bucket
+            s3_key: s3_key
+            duration: duration
+            url: url
+            error: error
+            status: status
+            method: method
+            path: path
+
+      # Convert extracted fields into Loki labels for filtering
+      # Only include fields that exist to avoid empty labels
+      - labels:
+          level:
+          app:
+          client_ip:
+          folder:
+          backend:
+          bucket:
+
+      # Parse timestamp from Unix format
+      - timestamp:
+          source: timestamp
+          format: Unix
+
+      # Output the final log line with structured message
+      - output:
+          source: msg
