@@ -13,17 +13,36 @@ except ImportError:
 
 
 def validate_folder_name(folder: str) -> bool:
-    """Validate folder name to prevent path traversal attacks."""
+    """Validate folder name to prevent path traversal attacks while allowing nested paths."""
     if not folder or not isinstance(folder, str):
         return False
     if len(folder) > 255:
         return False
+    
+    # Check for blocked patterns first
     for pattern in BLOCKED_PATTERNS:
         if re.search(pattern, folder, re.IGNORECASE):
             return False
-    if not re.match(r'^[a-zA-Z0-9._-]+$', folder):
-        return False
-    return True
+    
+    # Split folder path and validate each component
+    folder_components = folder.split('/')
+    
+    # Validate each folder component in the path
+    for component in folder_components:
+        # Skip empty components (allow trailing slashes)
+        if not component:
+            continue
+        
+        # Each component must be valid
+        if not re.match(r'^[a-zA-Z0-9._-]+$', component):
+            return False
+        
+        # Check for Windows reserved names in each component
+        if component.upper() in WINDOWS_RESERVED_NAMES:
+            return False
+    
+    # Ensure we have at least one valid component
+    return len([c for c in folder_components if c]) > 0
 
 
 def validate_filename(filename: str) -> bool:
