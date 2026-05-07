@@ -66,9 +66,11 @@ def setup_logging():
     console_handler.setFormatter(logging.Formatter(log_format))
     handlers.append(console_handler)
     
-    # File handler (optional)
+    # File handler (optional) - use /app/logs for Docker or fallback to local
     try:
-        file_handler = logging.FileHandler('fileuploader.log', encoding='utf-8')
+        log_dir = '/app/logs' if os.path.exists('/app/logs') else '.'
+        log_file = os.path.join(log_dir, 'fileuploader.log')
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setFormatter(logging.Formatter(log_format))
         handlers.append(file_handler)
     except Exception:
