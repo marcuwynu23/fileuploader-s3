@@ -30,8 +30,9 @@ docker compose down
 
 The `docker-compose.observability.yml` adds monitoring and logging:
 - **Prometheus** - Metrics collection
-- **Grafana** - Metrics visualization
-- **Loki/Promtail** - Log aggregation (optional)
+- **Grafana** - Metrics & logs visualization (with pre-configured dashboard)
+- **Loki** - Log aggregation storage
+- **Promtail** - Log collection from fileuploader
 
 ```bash
 # Start with observability
@@ -47,7 +48,8 @@ docker compose -f docker-compose.observability.yml down
 **Access Points:**
 - FileUploader API: http://localhost:2424
 - Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (admin / admin)
+- Grafana: http://localhost:3000 (admin / admin) - Dashboard auto-loaded
+- Loki: http://localhost:3100
 - MinIO Console: http://localhost:9001
 
 ## Configuration
@@ -118,8 +120,22 @@ docker compose --env-file .env up -d
 - **Image:** `grafana/grafana:latest`
 - **Port:** 3000
 - **Credentials:** admin / admin
-- **Data Source:** Prometheus (auto-configured)
+- **Data Sources:** Prometheus and Loki (auto-configured)
+- **Dashboard:** Bucket FileUploader API Dashboard (auto-provisioned)
 - **Storage:** `grafana_data` volume
+
+**Pre-configured Dashboard includes:**
+- Health Status - Service up/down indicator
+- Active Uploads - Current uploads in progress
+- Total Upload/Serve/Delete Requests - Request counters
+- Upload/Serve Rate - Throughput graphs
+- Upload Duration (P50/P95/P99) - Latency percentiles
+- Storage Used & Average File Size - Storage metrics
+- Upload Success Rate & Errors - Reliability metrics
+- File Size Distribution & Upload Duration Heatmaps
+- FileUploader Logs - Live log streaming from Loki
+
+**Dashboard Source:** https://github.com/marcuwynu23/grafana-dashboard-collections/blob/main/bucket-storage-fileuploader-api-dashboard
 
 ## Usage Examples
 
@@ -229,6 +245,8 @@ uv run pytest tests/
 | `minio-data` | MinIO object storage |
 | `prometheus_data` | Prometheus time-series data |
 | `grafana_data` | Grafana dashboards and settings |
+| `loki_data` | Loki log storage |
+| `fileuploader-logs` | Shared log volume for Promtail |
 
 ## Networks
 
