@@ -40,4 +40,4 @@ USER appuser
 EXPOSE 2424
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:2424/health || exit 1
-CMD ["uv", "run", "waitress-serve", "--host=0.0.0.0", "--port=2424", "--call", "fileuploader_s3.main:app"]
+CMD ["uv", "run", "waitress-serve", "--host=0.0.0.0", "--port=2424", "fileuploader_s3.main:app"]
