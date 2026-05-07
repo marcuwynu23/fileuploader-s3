@@ -33,6 +33,8 @@ services:
       FLASK_DEBUG: "false"
       USE_LOKI: "true"
       USE_PROMETHEUS: "true"
+    volumes:
+      - fileuploader-logs:/app
     depends_on:
       minio:
         condition: service_healthy
@@ -61,7 +63,31 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./observability/grafana/provisioning:/etc/grafana/provisioning
+
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml
+      - fileuploader-logs:/app:ro
+      - ./observability/promtail/positions:/tmp
+      
 volumes:
   minio-data:
   prometheus_data:
   grafana_data:
+  loki_data:
+  fileuploader-logs:
