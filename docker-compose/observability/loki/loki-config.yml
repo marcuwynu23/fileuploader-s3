@@ -1,0 +1,53 @@
+# ---------------------------------------------------
+# Loki Configuration
+# ---------------------------------------------------
+# Loki is the log aggregation system
+# It stores and indexes logs from Promtail
+# ---------------------------------------------------
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+# ---------------------------------------------------
+# Storage Configuration
+# ---------------------------------------------------
+common:
+  path_prefix: /loki
+
+  storage:
+    filesystem:
+      # Log chunks storage
+      chunks_directory: /loki/chunks
+
+      # Index and rule storage
+      rules_directory: /loki/rules
+
+  replication_factor: 1
+
+  ring:
+    kvstore:
+      store: inmemory
+
+# ---------------------------------------------------
+# Schema Configuration
+# ---------------------------------------------------
+schema_config:
+  configs:
+    - from: 2024-01-01
+
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+
+      index:
+        prefix: index_
+        period: 24h
+
+# ---------------------------------------------------
+# Limits Configuration
+# ---------------------------------------------------
+limits_config:
+  # Disables structured metadata (simplifies setup)
+  allow_structured_metadata: false
