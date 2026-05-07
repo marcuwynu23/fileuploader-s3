@@ -121,7 +121,7 @@ def upload_file():
         s3_client = get_s3_client()
         if not s3_client:
             app_logger.error("S3 client not available", 
-                          folder=folder, filename=filename, 
+                          folder=folder, file_name=filename, 
                           client_ip=request.remote_addr)
             if prometheus_metrics:
                 prometheus_metrics['upload_requests_total'].labels(method='POST', status='500').inc()
@@ -149,7 +149,7 @@ def upload_file():
         
         # Log success with structured data
         app_logger.info("File uploaded successfully", 
-                      folder=folder, filename=filename, 
+                      folder=folder, file_name=filename, 
                       file_size=file_size, duration=duration,
                       url=public_url, backend='s3',
                       client_ip=request.remote_addr)
@@ -173,7 +173,7 @@ def upload_file():
         
     except Exception as e:
         app_logger.error("Upload failed", 
-                      folder=folder, filename=filename,
+                      folder=folder, file_name=filename,
                       error=str(e), traceback=traceback.format_exc(),
                       client_ip=request.remote_addr)
         if prometheus_metrics:
@@ -435,7 +435,7 @@ def serve_static_file(filepath):
             # Log successful file serving
             duration = time.time() - start_time
             app_logger.info("File served successfully from S3", 
-                          folder=folder, filename=filename,
+                          folder=folder, file_name=filename,
                           file_size=file_size, duration=duration,
                           backend='s3', client_ip=request.remote_addr)
             
@@ -453,7 +453,7 @@ def serve_static_file(filepath):
             # Log redirect
             duration = time.time() - start_time
             app_logger.info("File redirect to S3 presigned URL", 
-                          folder=folder, filename=filename,
+                          folder=folder, file_name=filename,
                           file_size=file_size, duration=duration,
                           backend='s3', client_ip=request.remote_addr)
             
@@ -553,7 +553,7 @@ def delete_file(token):
         
         # Log successful deletion
         app_logger.info("File deleted successfully", 
-                      folder=folder, filename=filename,
+                      folder=folder, file_name=filename,
                       file_size=file_size, duration=duration,
                       backend='s3', client_ip=request.remote_addr)
         
@@ -571,7 +571,7 @@ def delete_file(token):
     except Exception as e:
         app_logger.error("Delete failed", 
                       folder=folder if 'folder' in locals() else 'unknown',
-                      filename=filename if 'filename' in locals() else 'unknown',
+                      file_name=filename if 'filename' in locals() else 'unknown',
                       error=str(e), traceback=traceback.format_exc(),
                       client_ip=request.remote_addr)
         if prometheus_metrics:

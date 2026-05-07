@@ -62,7 +62,7 @@ def upload_file_to_s3(file_content: bytes, folder: str, filename: str, app_logge
         file_obj = BytesIO(file_content)
         s3_client.upload_fileobj(file_obj, STORAGE_BUCKET, s3_key)
         app_logger.info("File successfully uploaded to S3", 
-                     folder=folder, filename=filename, 
+                     folder=folder, file_name=filename, 
                      file_size=len(file_content), backend='s3', bucket=STORAGE_BUCKET, s3_key=s3_key)
         
         # Verify object exists
@@ -78,7 +78,7 @@ def upload_file_to_s3(file_content: bytes, folder: str, filename: str, app_logge
     except Exception as s3_error:
         error_msg = f"Upload failed: {str(s3_error)}"
         app_logger.error("S3 upload failed", 
-                      folder=folder, filename=filename,
+                      folder=folder, file_name=filename,
                       error=str(s3_error), backend='s3')
         return False, error_msg
 
@@ -158,7 +158,7 @@ def upload_chunk_to_s3(file_content: bytes, folder: str, filename: str, chunk_in
     except Exception as s3_error:
         error_msg = f"Failed to store chunk: {str(s3_error)}"
         app_logger.error("S3 chunk upload failed", 
-                      folder=folder, filename=filename, chunk_index=chunk_index,
+                      folder=folder, file_name=filename, chunk_index=chunk_index,
                       error=str(s3_error))
         return False, error_msg
 
@@ -191,14 +191,14 @@ def combine_chunks_from_s3(folder: str, filename: str, total_chunks: int, app_lo
         
         file_size = len(all_chunks_content)
         app_logger.info("File chunks combined and uploaded to S3", 
-                      folder=folder, filename=filename,
+                      folder=folder, file_name=filename,
                       file_size=file_size, total_chunks=total_chunks)
         return True, file_size, None
         
     except Exception as s3_error:
         error_msg = f"Failed to combine chunks: {str(s3_error)}"
         app_logger.error("S3 chunk combination failed", 
-                      folder=folder, filename=filename,
+                      folder=folder, file_name=filename,
                       error=str(s3_error))
         return False, 0, error_msg
 
