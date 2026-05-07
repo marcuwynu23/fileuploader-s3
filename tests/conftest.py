@@ -132,6 +132,17 @@ def valid_folder_names():
     ]
 
 @pytest.fixture
+def valid_nested_folder_names():
+    """Return valid nested folder names for testing."""
+    return [
+        'hrms/freedom-wall',
+        'documents/reports/2024',
+        'images/profile/user123',
+        'projects/webapp/src/components',
+        'data/exports/csv/monthly'
+    ]
+
+@pytest.fixture
 def invalid_folder_names():
     """Return invalid folder names for testing."""
     return [

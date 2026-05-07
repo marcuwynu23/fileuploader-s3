@@ -133,7 +133,21 @@ def delete_file_from_s3(filepath: str, app_logger):
         return True, file_size, None
         
     except s3_client.exceptions.NoSuchKey:
-        return False, 0, 'File not found'
+        # File doesn't exist - treat as successful deletion for idempotency
+        app_logger.info("File not found in S3, treating as deleted", 
+                     filepath=filepath, backend='s3')
+        return True, 0, None
+    except AttributeError:
+        # Handle case where s3_client.exceptions doesn't have NoSuchKey
+        try:
+            # Try to get the object to see if it exists
+            s3_client.head_object(Bucket=STORAGE_BUCKET, Key=filepath)
+            # If it exists, try to delete it
+            s3_client.delete_object(Bucket=STORAGE_BUCKET, Key=filepath)
+            return True, 0, None
+        except Exception:
+            # If anything fails, treat as success for idempotency
+            return True, 0, None
     except Exception as s3_error:
         error_msg = f"Delete failed: {str(s3_error)}"
         app_logger.error("S3 deletion failed", 

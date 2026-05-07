@@ -41,6 +41,11 @@ class TestValidateFolderName:
         for folder in valid_folder_names:
             assert validate_folder_name(folder), f"Folder '{folder}' should be valid"
     
+    def test_valid_nested_folder_names(self, valid_nested_folder_names):
+        """Test that valid nested folder names are accepted."""
+        for folder in valid_nested_folder_names:
+            assert validate_folder_name(folder), f"Nested folder '{folder}' should be valid"
+    
     def test_invalid_folder_names(self, invalid_folder_names):
         """Test that invalid folder names are rejected."""
         for folder in invalid_folder_names:

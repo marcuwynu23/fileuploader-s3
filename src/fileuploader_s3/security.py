@@ -33,6 +33,10 @@ def validate_folder_name(folder: str) -> bool:
         if not component:
             continue
         
+        # Reject path traversal components explicitly
+        if component == '..' or component == '.':
+            return False
+        
         # Each component must be valid
         if not re.match(r'^[a-zA-Z0-9._-]+$', component):
             return False

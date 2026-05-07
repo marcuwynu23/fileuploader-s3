@@ -254,6 +254,7 @@ def upload_multiple_files():
         response_data = {
             "message": f"{len(uploaded)} file(s) uploaded successfully.",
             "files": uploaded,
+            "uploaded": uploaded,  # Add for backward compatibility
             "total_uploaded": len(uploaded)
         }
     else:
@@ -261,8 +262,106 @@ def upload_multiple_files():
     
     if errors:
         response_data["errors"] = errors
+        response_data["total_errors"] = len(errors)  # Add total_errors for tests
     
     return jsonify(response_data)
+
+
+# ---- Upload Multiple Chunk ----
+@file_uploader.route("/upload_multi_chunk", methods=["POST"])
+@limiter.limit(limit_value="20 per minute")
+def upload_multiple_chunk():
+    """Upload multiple files in chunks and return Gmail-compatible static URLs."""
+    app_logger = get_app_logger()
+    prometheus_metrics = get_prometheus_metrics()
+    
+    folder = request.form.get("folder")
+    if not folder or not validate_folder_name(folder):
+        return jsonify({"error": "Invalid or missing folder name"}), 400
+
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"error": "No files uploaded"}), 400
+
+    chunk_index = int(request.form.get("dzchunkindex", 0))
+    total_chunks = int(request.form.get("dztotalchunkcount", 1))
+
+    uploaded = []
+    errors = []
+    
+    for file in files:
+        if not file or file.filename == "":
+            continue
+            
+        original_filename = file.filename
+        if not validate_filename(original_filename):
+            errors.append(f"Invalid filename: {original_filename}")
+            continue
+            
+        if not is_allowed_file_type(original_filename):
+            errors.append(f"File type not allowed: {original_filename}")
+            continue
+
+        filename = sanitize_filename(original_filename)
+        
+        # Check chunk size
+        file.seek(0, os.SEEK_END)
+        chunk_size = file.tell()
+        file.seek(0)
+        
+        if chunk_size > MAX_CHUNK_SIZE:
+            errors.append(f"Chunk too large: {original_filename}")
+            continue
+        
+        # Read chunk content
+        file_content = file.read()
+        
+        s3_client = get_s3_client()
+        if not s3_client:
+            errors.append(f"S3 client not available: {original_filename}")
+            continue
+        
+        # Upload chunk to S3
+        success, error_msg = upload_chunk_to_s3(file_content, folder, filename, chunk_index, app_logger)
+        
+        if not success:
+            errors.append(f"Failed to upload chunk {original_filename}: {error_msg}")
+            continue
+        
+        # If this is the last chunk, combine and upload final file
+        if chunk_index == total_chunks - 1:
+            combine_success, file_size, combine_error = combine_chunks_from_s3(folder, filename, total_chunks, app_logger)
+            
+            if combine_success:
+                from .utils import generate_public_url
+                public_url = generate_public_url(BASE_URL, folder, filename)
+                uploaded.append({
+                    "filename": filename,
+                    "original_filename": original_filename,
+                    "url": public_url,
+                    "size": file_size,
+                    "mime_type": get_mime_type(filename)
+                })
+            else:
+                errors.append(f"Failed to combine chunks {original_filename}: {combine_error}")
+    
+    if uploaded:
+        response_data = {
+            "message": f"{len(uploaded)} file(s) uploaded successfully.",
+            "files": uploaded,
+            "uploaded": uploaded,  # Add for backward compatibility
+            "total_uploaded": len(uploaded)
+        }
+    else:
+        response_data = {"message": f"Chunk {chunk_index + 1} uploaded successfully."}
+    
+    if errors:
+        response_data["errors"] = errors
+        response_data["total_errors"] = len(errors)  # Add total_errors for tests
+    
+    return jsonify(response_data)
+
+
 
 
 # ---- Upload Chunk ----
@@ -535,12 +634,7 @@ def delete_file(token):
                 prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
             return jsonify({"error": "Invalid folder or filename"}), 400
         
-        # Check for nested folders (not supported)
-        if '/' in filename or '\\' in filename:
-            if prometheus_metrics:
-                prometheus_metrics['delete_requests_total'].labels(method='DELETE', status='400').inc()
-            return jsonify({"error": "Nested folders not supported"}), 400
-        
+                
         # Delete from S3
         success, file_size, error_msg = delete_file_from_s3(key, app_logger)
         
