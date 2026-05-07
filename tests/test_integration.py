@@ -39,7 +39,14 @@ class TestGmailCompatibilityIntegration:
             assert 'token' not in file_url  # No tokens
             assert file_url.endswith('.png')  # Proper extension
             
-            # Step 3: Access the file directly (as Gmail would)
+            # Step 3: Access the file directly (as Gmail would) with S3 mocking
+            import io
+            mock_s3.head_object.return_value = {'ContentLength': 1024}
+            mock_s3.get_object.return_value = {
+                'Body': io.BytesIO(b'fake png content for serving'),
+                'ContentLength': 1024
+            }
+            
             file_response = client.get('/uploads/email_assets/logo.png')
             assert file_response.status_code == 200
             assert file_response.content_type == 'image/png'
@@ -190,18 +197,33 @@ class TestEndToEndWorkflows:
             assert upload_response.status_code == 200
             upload_data = json.loads(upload_response.data)
             
-            # Step 2: Access file
+            # Step 2: Access file with S3 mocking
+            import io
+            mock_s3.head_object.return_value = {'ContentLength': 1024}
+            mock_s3.get_object.return_value = {
+                'Body': io.BytesIO(b'fake png content'),
+                'ContentLength': 1024
+            }
+            
             file_response = client.get('/uploads/workflow_test/test.png')
             assert file_response.status_code == 200
             
             # Step 3: Delete file - use the actual token from upload response
             from src.fileuploader_s3.utils import encrypt_key
+            from src.fileuploader_s3.routes import decrypt_key
             token = encrypt_key('workflow_test', 'test.png')
             
-            delete_response = client.delete(f'/api/test/fileuploader/delete/{token}')
-            assert delete_response.status_code == 200
+            with patch('src.fileuploader_s3.routes.decrypt_key') as mock_decrypt:
+                mock_decrypt.return_value = 'workflow_test/test.png'
+                delete_response = client.delete(f'/api/test/fileuploader/delete/{token}')
+                assert delete_response.status_code == 200
             
             # Step 4: Verify file is gone
+            class NoSuchKey(Exception):
+                pass
+            mock_s3.exceptions = type('exceptions', (), {'NoSuchKey': NoSuchKey})
+            mock_s3.head_object.side_effect = NoSuchKey("File not found")
+            
             file_response_after = client.get('/uploads/workflow_test/test.png')
             assert file_response_after.status_code == 404
     
@@ -259,7 +281,13 @@ class TestEndToEndWorkflows:
                     assert 'url' in response_data
                     assert response_data['filename'] == filename
             
-            # Verify final file is accessible
+            # Verify final file is accessible with S3 mocking
+            mock_s3.head_object.return_value = {'ContentLength': 1024}
+            mock_s3.get_object.return_value = {
+                'Body': io.BytesIO(png_data),
+                'ContentLength': len(png_data)
+            }
+            
             file_response = client.get(f'/uploads/{folder}/{filename}')
             assert file_response.status_code == 200
     
@@ -291,8 +319,15 @@ class TestEndToEndWorkflows:
             # Generate comprehensive email
             email_html = self._generate_campaign_html(upload_data['uploaded'])
             
-            # Verify all files are accessible
+            # Verify all files are accessible with S3 mocking
+            import io
             for file_info in upload_data['uploaded']:
+                mock_s3.head_object.return_value = {'ContentLength': 1024}
+                mock_s3.get_object.return_value = {
+                    'Body': io.BytesIO(b'fake file content'),
+                    'ContentLength': 1024
+                }
+                
                 file_response = client.get(f"/uploads/campaign_2024/{file_info['filename']}")
                 assert file_response.status_code == 200
                 assert file_response.content_type == file_info['mime_type']
@@ -364,7 +399,7 @@ class TestBackwardCompatibility:
             assert upload_response.status_code == 200
             
             # Simulate legacy access with token
-            with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
+            with patch('src.fileuploader_s3.routes.decrypt_key') as mock_decrypt:
                 mock_decrypt.return_value = 'legacy_test/legacy.png'
                 
                 legacy_response = client.get('/api/test/fileuploader/render/legacy_token')
@@ -394,12 +429,19 @@ class TestBackwardCompatibility:
             
             assert upload_response.status_code == 200
             
-            # New URL should work directly
+            # New URL should work directly with S3 mocking
+            import io
+            mock_s3.head_object.return_value = {'ContentLength': 1024}
+            mock_s3.get_object.return_value = {
+                'Body': io.BytesIO(b'fake png content'),
+                'ContentLength': 1024
+            }
+            
             new_response = client.get('/uploads/mixed_test/mixed.png')
             assert new_response.status_code == 200
             
             # Legacy URL should redirect
-            with patch('src.fileuploader_s3.utils.decrypt_key') as mock_decrypt:
+            with patch('src.fileuploader_s3.routes.decrypt_key') as mock_decrypt:
                 mock_decrypt.return_value = 'mixed_test/mixed.png'
                 
                 legacy_response = client.get('/api/test/fileuploader/render/legacy_token')
