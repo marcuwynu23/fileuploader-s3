@@ -2,7 +2,7 @@
 
 # Bucket Storage File Uploader API
 
-![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Version](https://img.shields.io/badge/version-0.1.0-orange.svg) ![Flask](https://img.shields.io/badge/Flask-3.1.2-000000?style=flat&logo=flask) ![Bucket Storage](https://img.shields.io/badge/Bucket-Storage-FF9900?style=flat) ![Docker](https://img.shields.io/badge/Docker-Available-2496ED?style=flat&logo=docker)
+![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg) ![Version](https://img.shields.io/badge/version-v0.0.3--beta-orange.svg) ![Flask](https://img.shields.io/badge/Flask-3.1.2-000000?style=flat&logo=flask) ![Bucket Storage](https://img.shields.io/badge/Bucket-Storage-FF9900?style=flat) ![Docker](https://img.shields.io/badge/Docker-Available-2496ED?style=flat&logo=docker)
 
 </div>
 
