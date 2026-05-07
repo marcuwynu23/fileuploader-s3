@@ -1,0 +1,67 @@
+services:
+  # MinIO (local S3 alternative for development)
+  minio:
+    image: minio/minio:latest
+    container_name: fileuploader-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: admin123
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  fileuploader:
+    image: ghcr.io/marcuwynu23/bucket-fileuploader:latest
+    container_name: fileuploader
+    ports:
+      - "2424:2424"
+    environment:
+      BASE_URL: http://localhost:2424
+      ROUTE_PREFIX: /api/fileuploader
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_ACCESS_KEY: admin
+      STORAGE_SECRET_KEY: admin123
+      STORAGE_BUCKET: fileuploads
+      FLASK_DEBUG: "false"
+      USE_LOKI: "true"
+      USE_PROMETHEUS: "true"
+    depends_on:
+      minio:
+        condition: service_healthy
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+volumes:
+  minio-data:
+  prometheus_data:
+  grafana_data:
