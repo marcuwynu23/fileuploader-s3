@@ -154,6 +154,10 @@ limiter = Limiter(
 )
 limiter.init_app(app)
 
+# Apply limiter exemptions after limiter is initialized
+metrics = limiter.exempt(metrics)
+health_check = limiter.exempt(health_check)
+
 # Register static file route directly on app (not on blueprint)
 @app.route("/uploads/<path:filepath>", methods=["GET"])
 @limiter.limit(limit_value="100 per minute")
