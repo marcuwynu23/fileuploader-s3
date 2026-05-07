@@ -18,12 +18,9 @@ services:
       timeout: 20s
       retries: 3
 
-  # Fileuploader S3 Development Service
-  fileuploader-dev:
-    build:
-      context: .
-      target: development
-    container_name: fileuploader-dev
+  fileuploader:
+    image: ghcr.io/marcuwynu23/bucket-fileuploader:latest
+    container_name: fileuploader
     ports:
       - "2424:2424"
     environment:
@@ -33,12 +30,11 @@ services:
       STORAGE_ACCESS_KEY: admin
       STORAGE_SECRET_KEY: admin123
       STORAGE_BUCKET: fileuploads
-      FLASK_DEBUG: "true"
+      FLASK_DEBUG: "false"
+      USE_LOKI: "true"
+      USE_PROMETHEUS: "true"
     depends_on:
       minio:
         condition: service_healthy
-    volumes:
-      - ./src:/app/src
-      - ./templates:/app/templates
 volumes:
   minio-data:
