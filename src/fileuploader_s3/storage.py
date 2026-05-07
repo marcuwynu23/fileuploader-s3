@@ -1,7 +1,8 @@
 """Storage module for S3 operations."""
 
-from io import BytesIO
 import os
+import sys
+from io import BytesIO
 from .config import STORAGE_ENDPOINT, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, STORAGE_BUCKET
 from .security import validate_file_content, get_mime_type
 
@@ -15,6 +16,13 @@ def initialize_s3_client(boto3, Config):
     
     # Check if we're in TESTING mode
     testing = os.getenv('TESTING', 'false').lower() == 'true'
+    
+    # Skip S3 on Windows to avoid OpenSSL issues (unless explicitly enabled)
+    if sys.platform == 'win32' and os.getenv('FORCE_S3', 'false').lower() != 'true':
+        print("WARNING: Running on Windows - S3 client disabled to avoid OpenSSL issues")
+        print("Set FORCE_S3=true to enable S3 (may require fixing OpenSSL)")
+        s3_client = None
+        return s3_client
     
     print("Initializing S3 client...")
     try:
