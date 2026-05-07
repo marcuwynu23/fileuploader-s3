@@ -1,6 +1,6 @@
 [project]
 name = "fileuploader-s3"
-version = "0.0.3-beta"
+version = "v1.0.0"
 description = "Bucket Storage File Uploader API - Flask + S3/MinIO/Cloudflare R2"
 authors = [{ name = "Mark Wayne Menorca", email = "marcuwynu23@gmail.com" }]
 readme = "README.md"
