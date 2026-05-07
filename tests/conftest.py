@@ -25,7 +25,8 @@ os.environ.update({
     'STORAGE_BUCKET': 'test-bucket',
     'USE_S3': 'false',
     'USE_PROMETHEUS': 'True',
-    'TESTING': 'true'
+    'TESTING': 'true',
+    'FORCE_S3': 'true'  # Enable S3 for tests (will be mocked)
 })
 
 # Mock boto3 and related modules BEFORE any imports from the project!
