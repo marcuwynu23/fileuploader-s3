@@ -1,0 +1,352 @@
+{
+  "meta": {
+    "format": "httpie",
+    "version": "1.0.0",
+    "contentType": "collection",
+    "schema": "https://schema.httpie.io/1.0.0.json",
+    "docs": "https://httpie.io/r/help/export-from-httpie",
+    "source": "HTTPie Desktop 2025.2.0"
+  },
+  "entry": {
+    "name": "File Uploader API Test",
+    "icon": {
+      "name": "default",
+      "color": "gray"
+    },
+    "auth": {
+      "type": "none"
+    },
+    "requests": [
+      {
+        "name": "post upload multiple files",
+        "url": "http://127.0.0.1:2424/api/bcloud/fileuploader/upload_multi",
+        "method": "POST",
+        "headers": [],
+        "queryParams": [],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": [
+              {
+                "name": "folder",
+                "value": "test",
+                "enabled": true,
+                "type": "text"
+              },
+              {
+                "name": "files",
+                "value": "",
+                "enabled": true,
+                "type": "file"
+              }
+            ]
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "post upload file",
+        "url": "http://127.0.0.1:2424/api/fileuploader/upload",
+        "method": "POST",
+        "headers": [],
+        "queryParams": [],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": [
+              {
+                "name": "folder",
+                "value": "hrms/freedom-wall",
+                "enabled": true,
+                "type": "text"
+              },
+              {
+                "name": "file",
+                "value": "",
+                "enabled": true,
+                "type": "file"
+              }
+            ]
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "post upload  file (chunk)",
+        "url": "http://127.0.0.1:2424/api/bcloud/fileuploader/upload_chunk",
+        "method": "POST",
+        "headers": [],
+        "queryParams": [],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": [
+              {
+                "name": "folder",
+                "value": "test",
+                "enabled": true,
+                "type": "text"
+              },
+              {
+                "name": "file",
+                "value": "",
+                "enabled": true,
+                "type": "file"
+              },
+              {
+                "name": "dzchunkindex",
+                "value": "0",
+                "enabled": true,
+                "type": "text"
+              },
+              {
+                "name": "dztotalchunkcount",
+                "value": "1",
+                "enabled": true,
+                "type": "text"
+              }
+            ]
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "post upload  multiple files (chunk)",
+        "url": "http://127.0.0.1:2424/api/bcloud/fileuploader/upload_multi_chunk",
+        "method": "POST",
+        "headers": [],
+        "queryParams": [],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": [
+              {
+                "name": "folder",
+                "value": "test",
+                "enabled": true,
+                "type": "text"
+              },
+              {
+                "name": "file",
+                "value": "",
+                "enabled": true,
+                "type": "file"
+              },
+              {
+                "name": "dzchunkindex",
+                "value": "0",
+                "enabled": true,
+                "type": "text"
+              },
+              {
+                "name": "dztotalchunkcount",
+                "value": "1",
+                "enabled": true,
+                "type": "text"
+              }
+            ]
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "delete file",
+        "url": "http://127.0.0.1:2424/api/bcloud/fileuploader/delete?filename=8410416.jpg&folder=test",
+        "method": "DELETE",
+        "headers": [],
+        "queryParams": [
+          {
+            "name": "folder",
+            "value": "test/videos",
+            "enabled": true
+          },
+          {
+            "name": "filename",
+            "value": "video1.jpg",
+            "enabled": true
+          }
+        ],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": []
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "render website",
+        "url": "http://127.0.0.1:2424",
+        "method": "GET",
+        "headers": [],
+        "queryParams": [],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": []
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "view file",
+        "url": "http://127.0.0.1:2424/uploads/test/devops.jpg",
+        "method": "GET",
+        "headers": [],
+        "queryParams": [],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "none",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": false,
+            "fields": []
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      },
+      {
+        "name": "(legacy) view file",
+        "url": "http://127.0.0.1:2424/api/bcloud/fileuploader/render?filename=devops.jpg&folder=test",
+        "method": "GET",
+        "headers": [],
+        "queryParams": [
+          {
+            "name": "folder",
+            "value": "test/videos",
+            "enabled": true
+          },
+          {
+            "name": "filename",
+            "value": "video1.jpg",
+            "enabled": true
+          }
+        ],
+        "pathParams": [],
+        "auth": {
+          "type": "inherited"
+        },
+        "body": {
+          "type": "form",
+          "file": {
+            "name": ""
+          },
+          "text": {
+            "value": "",
+            "format": "application/json"
+          },
+          "form": {
+            "isMultipart": true,
+            "fields": []
+          },
+          "graphql": {
+            "query": "",
+            "variables": ""
+          }
+        }
+      }
+    ]
+  }
+}
